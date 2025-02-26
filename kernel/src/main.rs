@@ -21,8 +21,9 @@ global_asm!(
 
         la a7, 0x4442434E
         la a6, 0x0
-        la a0, message
-        li a1, 6
+        la a0, 6
+        la a1, message
+        la a2, 0
         ecall
 
         j .
