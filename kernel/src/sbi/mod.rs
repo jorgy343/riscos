@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 pub mod debug_console;
 
 #[inline(always)]

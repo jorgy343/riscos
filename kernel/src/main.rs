@@ -28,20 +28,47 @@ pub extern "C" fn kernel_main(_hart_id: usize, _dtb_addr: *const u8) -> ! {
 global_asm!(
     "
     .global _start
+
     .extern _stack_start
+    .extern _bss_start
+    .extern _bss_end
     .extern kernel_main
 
     .section .text.boot
     
     _start:
+        // For now, all secondary harts (hart ID != 0) will loop forever. The riscv spec,
+        // requires that there be at least one hard that has hart ID 0.
+        bnez a0, secondary_hart
+
+        // Disable all supervisor level interrupts.
+        csrw sie, zero
+
         // Load stack pointer from the linker script symbol.
         la sp, _stack_start
+
+        // Zero out the .bss section.
+        la t0, _bss_start
+        la t1, _bss_end
+    
+        bss_clear_loop:
+            bgeu t0, t1, bss_clear_end  // If t0 >= t1, exit the loop.
+            sd zero, (t0)               // Write 8 bytes of zeros at address t0.
+            addi t0, t0, 8              // Increment t0 by 8 bytes.
+            j bss_clear_loop            // Repeat the loop.
+
+        bss_clear_end:
         
         // a0 = hart_id
         // a1 = Device Tree Blob address
         jal kernel_main
 
     infinite:   // Infinite loop if kernel_main returns.
+        wfi
         j infinite
+
+    secondary_hart:
+        wfi
+        j secondary_hart
     "
 );
