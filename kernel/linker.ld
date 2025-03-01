@@ -2,27 +2,32 @@ SECTIONS
 {
     . = 0x80200000;
 
-    .text.boot : {
+    .text.boot : ALIGN(16) {
         *(.text.boot)
     }
 
-    .text : {
+    .text : ALIGN(16) {
         *(.text)
+        *(.text.*)
     }
 
-    .rodata : {
+    .rodata : ALIGN(16) {
         *(.rodata)
+        *(.rodata.*)
     }
 
-    .data : {
+    .data : ALIGN(16) {
         *(.data)
+        *(.data.*)
     }
 
-    .bss : {
+    .bss : ALIGN(16) {
         *(.bss)
+        *(.bss.*)
+        *(COMMON)
     }
 
-    . = ALIGN(8);
+    . = ALIGN(16);
     . = . + 32768;
 
     _stack_start = .;
