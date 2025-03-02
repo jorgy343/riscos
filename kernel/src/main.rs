@@ -1,17 +1,16 @@
-#![no_std]
+#![cfg_attr(not(test), no_std)]
 #![no_main]
+
+mod sbi;
+mod memory;
 
 use core::arch::global_asm;
 use core::panic::PanicInfo;
 
 use sbi::debug_console::sbi_debug_console_write;
+use memory::mmu::PageTable;
 
-pub mod sbi;
-
-#[panic_handler]
-fn panic(_panic: &PanicInfo) -> ! {
-    loop {}
-}
+static mut ROOT_PAGE_TABLE: PageTable = PageTable::new();
 
 /// Main kernel entry point. This function is called as early as possible in the boot process.
 /// 
@@ -22,6 +21,11 @@ fn panic(_panic: &PanicInfo) -> ! {
 pub extern "C" fn kernel_main(_hart_id: usize, _dtb_addr: *const u8) -> ! {
     sbi_debug_console_write(b"Hello, world!\n");
 
+    loop {}
+}
+
+#[panic_handler]
+fn panic(_panic: &PanicInfo) -> ! {
     loop {}
 }
 
