@@ -29,26 +29,26 @@ global_asm!(
     "
     .global _start
 
-    .extern _stack_start
-    .extern _bss_start
+    .extern _bss_begin
     .extern _bss_end
+    .extern _stack_end
     .extern kernel_main
 
-    .section .text.boot
+    .section .text.kernel_boot
     
     _start:
         // For now, all secondary harts (hart ID != 0) will loop forever. The riscv spec,
-        // requires that there be at least one hard that has hart ID 0.
+        // requires that there be at least one hart that has hart ID 0.
         bnez a0, secondary_hart
 
-        // Disable all supervisor level interrupts.
-        csrw sie, zero
+        // Disable all supervisor level interrupts globally.
+        csrci sstatus, 2
 
         // Load stack pointer from the linker script symbol.
-        la sp, _stack_start
+        la sp, _stack_end
 
         // Zero out the .bss section.
-        la t0, _bss_start
+        la t0, _bss_begin
         la t1, _bss_end
     
         bss_clear_loop:
