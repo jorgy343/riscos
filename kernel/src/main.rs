@@ -7,10 +7,12 @@ mod memory;
 use core::arch::global_asm;
 use core::panic::PanicInfo;
 
+use memory::bump_allocator::BumpAllocator;
 use sbi::debug_console::sbi_debug_console_write;
 use memory::mmu::PageTable;
 
 static mut ROOT_PAGE_TABLE: PageTable = PageTable::new();
+static mut BUMP_ALLOCATOR: Option<BumpAllocator> = None;
 
 /// Main kernel entry point. This function is called as early as possible in the boot process.
 /// 
