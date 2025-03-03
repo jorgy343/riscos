@@ -3,12 +3,12 @@
 
 mod sbi;
 mod memory;
+mod dtb;
 
 use core::arch::global_asm;
 use core::panic::PanicInfo;
 
 use memory::bump_allocator::BumpAllocator;
-use sbi::debug_console::sbi_debug_console_write;
 use memory::mmu::PageTable;
 
 static mut ROOT_PAGE_TABLE: PageTable = PageTable::new();
@@ -20,8 +20,22 @@ static mut BUMP_ALLOCATOR: Option<BumpAllocator> = None;
 /// * `hart_id` - The hardware thread ID.
 /// * `dtb_addr` - Pointer to the device tree blob.
 #[unsafe(no_mangle)]
-pub extern "C" fn kernel_main(_hart_id: usize, _dtb_addr: *const u8) -> ! {
-    sbi_debug_console_write(b"Hello, world!\n");
+pub extern "C" fn kernel_main(_hart_id: usize, dtb_addr: *const u8) -> ! {
+    debug_println!("Hello, world!");
+
+    // Convert the DTB address to a DtbHeader pointer
+    let dtb_header = dtb_addr as *const dtb::DtbHeader;
+
+    // Safely access the DTB header
+    if !dtb_header.is_null() {
+        // Access fields via the pointer
+        let header = unsafe { &*dtb_header };
+
+        debug_println!("DTB found at address: {:#x}", dtb_addr as usize);
+        debug_println!("DTB magic: {:#x} with total size {:#x}", u32::from_be(header.magic), u32::from_be(header.total_size));
+    } else {
+        debug_println!("Invalid DTB address provided.");
+    }
 
     loop {}
 }
