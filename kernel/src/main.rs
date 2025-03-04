@@ -8,6 +8,7 @@ mod dtb;
 use core::arch::global_asm;
 use core::panic::PanicInfo;
 
+use dtb::walk_memory_reservation_entries;
 use memory::bump_allocator::BumpAllocator;
 use memory::mmu::PageTable;
 
@@ -32,7 +33,11 @@ pub extern "C" fn kernel_main(_hart_id: usize, dtb_addr: *const u8) -> ! {
         let header = unsafe { &*dtb_header };
 
         debug_println!("DTB found at address: {:#x}", dtb_addr as usize);
-        debug_println!("DTB magic: {:#x} with total size {:#x}", u32::from_be(header.magic), u32::from_be(header.total_size));
+        debug_println!("{:#?}", header);
+
+        walk_memory_reservation_entries(dtb_header, |entry| {
+            debug_println!("{:#?}", entry);
+        });
     } else {
         debug_println!("Invalid DTB address provided.");
     }
