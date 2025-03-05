@@ -83,3 +83,108 @@ pub fn walk_memory_reservation_entries(dtb_header_pointer: *const DtbHeader, cal
         index += 1;
     }
 }
+
+pub fn walk_structure_block(dtb_header_pointer: *const DtbHeader) {
+    // Convert the DTB header pointer to a DtbHeader reference.
+    let dtb_header = unsafe { &*dtb_header_pointer };
+
+    // Calculate the structure block address. The DTB header fields are stored
+    // in big-endian format, so we need to convert them.
+    let structure_block_offset = u32::from_be(dtb_header.structure_block_offset);
+    let structure_block_address = dtb_header_pointer as usize + structure_block_offset as usize;
+
+    // Walk the structure block.
+    let mut current_address = structure_block_address;
+    let mut current_node_depth = 0;
+
+    loop {
+        let token_address = unsafe { &*(current_address as *const u32) };
+        let token = u32::from_be(*token_address);
+
+        current_address += core::mem::size_of::<u32>();
+
+        if token == 1 {
+            // The FDT_BEGIN_NODE token (1) is followed by the unit name as a null-terminated string.
+            // The string is padded to a multiple of 4 bytes.
+            let mut byte_address = current_address;
+            let mut name_length = 0;
+
+            // First, find the end of the null-terminated string
+            loop {
+                let byte = unsafe { *(byte_address as *const u8) };
+                if byte == 0 {
+                    break;
+                }
+                byte_address += 1;
+                name_length += 1;
+            }
+
+            // Print the node name directly as bytes
+            debug_print!("Node: ");
+            for i in 0..name_length {
+                let byte = unsafe { *((current_address + i) as *const u8) };
+                debug_print!("{}", byte as char);
+            }
+            debug_println!(", depth: {}", current_node_depth);
+
+            // Move the current address to the next 4-byte aligned position after the null-terminated string
+            current_address += name_length + 1;
+            current_address = (current_address + 3) & !3;
+            
+            current_node_depth += 1;
+        } else if token == 2 {
+            current_node_depth -= 1;
+
+            debug_println!("end node, depth: {}", current_node_depth);
+        } else if token == 3 {
+            // FDT_PROP token
+            // First read the property length and nameoff
+            let prop_len_be = unsafe { *(current_address as *const u32) };
+            let prop_len = u32::from_be(prop_len_be);
+            current_address += core::mem::size_of::<u32>();
+
+            let nameoff_be = unsafe { *(current_address as *const u32) };
+            let nameoff = u32::from_be(nameoff_be); // Not used yet but read for future use
+            current_address += core::mem::size_of::<u32>();
+
+            // Get the property name from the strings block
+            let strings_block_offset = u32::from_be(dtb_header.strings_block_offset);
+            let strings_block_address = dtb_header_pointer as usize + strings_block_offset as usize;
+            let prop_name_address = strings_block_address + nameoff as usize;
+
+            // Read the property name as a null-terminated string
+            let mut byte_address = prop_name_address;
+            let mut name_length = 0;
+            loop {
+                let byte = unsafe { *(byte_address as *const u8) };
+                if byte == 0 {
+                    break;
+                }
+                byte_address += 1;
+                name_length += 1;
+            }
+
+            // Print the property name
+            debug_print!("  Property: ");
+            for i in 0..name_length {
+                let byte = unsafe { *((prop_name_address + i) as *const u8) };
+                debug_print!("{}", byte as char);
+            }
+
+            // Skip the property data
+            if prop_len > 0 {
+                debug_println!("|Length: {}",  prop_len);
+                current_address += prop_len as usize;
+            } else {
+                debug_println!("|Length: 0");
+            }
+
+            // Align to 4-byte boundary
+            current_address = (current_address + 3) & !3;
+        } else if token == 4 { // NOP token. Do nothing.
+            
+        } else if token == 9 { // End of block token.
+            break;
+        }
+    }
+}
