@@ -1,0 +1,14 @@
+{
+    "name": "RiscOS",
+    "build": {
+        "dockerfile": "devcontainers.dockerfile"
+    },
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "rust-lang.rust-analyzer",
+                "dnut.rewrap-revived"
+            ]
+        }
+    }
+}

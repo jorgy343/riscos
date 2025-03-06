@@ -84,6 +84,97 @@ pub fn walk_memory_reservation_entries(dtb_header_pointer: *const DtbHeader, cal
     }
 }
 
+// Constant values for FDT tokens
+const FDT_BEGIN_NODE: u32 = 1;
+const FDT_END_NODE: u32 = 2;
+const FDT_PROP: u32 = 3;
+const FDT_NOP: u32 = 4;
+const FDT_END: u32 = 9;
+/// Reads a null-terminated string from the given address.
+fn read_null_terminated_string(address: usize) -> &'static str {
+    let mut byte_address = address;
+    let mut name_length = 0;
+
+    // Find the end of the null-terminated string.
+    while unsafe { *(byte_address as *const u8) } != 0 {
+        byte_address += 1;
+        name_length += 1;
+    }
+
+    // Convert the byte sequence to a str.
+    unsafe { 
+        core::str::from_utf8_unchecked(
+            core::slice::from_raw_parts(address as *const u8, name_length)
+        )
+    }
+}
+
+/// Read properties from a node in the device tree.
+pub fn read_node_properties(
+    dtb_header_pointer: *const DtbHeader,
+    node_address: usize, 
+    property_callback: impl Fn(&str, usize, usize)
+) -> usize {
+    let dtb_header = unsafe { &*dtb_header_pointer };
+    
+    // Get the address of the strings block.
+    let strings_block_offset = u32::from_be(dtb_header.strings_block_offset);
+    let strings_block_address = dtb_header_pointer as usize + strings_block_offset as usize;
+    
+    // Skip the node's FDT_BEGIN_NODE token and name.
+    let mut current_address = node_address + core::mem::size_of::<u32>();
+    let node_name = read_null_terminated_string(current_address);
+    
+    // Align to 4-byte boundary after the name.
+    current_address += node_name.len() + 1; // +1 for null terminator
+    current_address = (current_address + 3) & !3;
+    
+    loop {
+        let token_address = unsafe { &*(current_address as *const u32) };
+        let token = u32::from_be(*token_address);
+        current_address += core::mem::size_of::<u32>();
+        
+        match token {
+            FDT_PROP => {
+                // Read property length and name offset.
+                let prop_len = u32::from_be(unsafe { *(current_address as *const u32) });
+                current_address += core::mem::size_of::<u32>();
+                
+                let nameoff = u32::from_be(unsafe { *(current_address as *const u32) });
+                current_address += core::mem::size_of::<u32>();
+                
+                // Get the property name from the strings block.
+                let prop_name_address = strings_block_address + nameoff as usize;
+                let prop_name = read_null_terminated_string(prop_name_address);
+                
+                // Property data starts at current_address.
+                let prop_data_address = current_address;
+                
+                // Call the callback with property information.
+                property_callback(prop_name, prop_data_address, prop_len as usize);
+                
+                // Skip property data and align to 4-byte boundary.
+                current_address += prop_len as usize;
+                current_address = (current_address + 3) & !3;
+            },
+            FDT_BEGIN_NODE => {
+                // We found a child node, return current position to allow caller to process it.
+                return current_address - core::mem::size_of::<u32>();
+            },
+            FDT_END_NODE | FDT_END => {
+                // End of this node's properties.
+                return current_address;
+            },
+            FDT_NOP => {
+                // Nothing to do for NOP tokens.
+            },
+            _ => {
+                debug_println!("Unknown FDT token: {}", token);
+            }
+        }
+    }
+}
+
 pub fn walk_structure_block(dtb_header_pointer: *const DtbHeader) {
     // Convert the DTB header pointer to a DtbHeader reference.
     let dtb_header = unsafe { &*dtb_header_pointer };
@@ -103,87 +194,29 @@ pub fn walk_structure_block(dtb_header_pointer: *const DtbHeader) {
 
         current_address += core::mem::size_of::<u32>();
 
-        if token == 1 {
-            // The FDT_BEGIN_NODE token (1) is followed by the unit name as a null-terminated string.
-            // The string is padded to a multiple of 4 bytes.
-            let mut byte_address = current_address;
-            let mut name_length = 0;
+        if token == FDT_BEGIN_NODE {
+            // Read the node name.
+            let node_name = read_null_terminated_string(current_address);
+            debug_println!("Node: {}, depth: {}", node_name, current_node_depth);
 
-            // First, find the end of the null-terminated string
-            loop {
-                let byte = unsafe { *(byte_address as *const u8) };
-                if byte == 0 {
-                    break;
-                }
-                byte_address += 1;
-                name_length += 1;
-            }
-
-            // Print the node name directly as bytes
-            debug_print!("Node: ");
-            for i in 0..name_length {
-                let byte = unsafe { *((current_address + i) as *const u8) };
-                debug_print!("{}", byte as char);
-            }
-            debug_println!(", depth: {}", current_node_depth);
-
-            // Move the current address to the next 4-byte aligned position after the null-terminated string
-            current_address += name_length + 1;
+            // Align to 4-byte boundary after the name.
+            current_address += node_name.len() + 1; // +1 for null terminator
             current_address = (current_address + 3) & !3;
+            
+            // Process all properties of this node.
+            current_address = read_node_properties(
+                dtb_header_pointer, 
+                current_address - core::mem::size_of::<u32>() - (node_name.len() + 1),
+                |prop_name, prop_data, prop_len| {
+                    debug_println!("  Property: {}|Length: {}", prop_name, prop_len);
+                }
+            );
             
             current_node_depth += 1;
-        } else if token == 2 {
+        } else if token == FDT_END_NODE {
             current_node_depth -= 1;
-
             debug_println!("end node, depth: {}", current_node_depth);
-        } else if token == 3 {
-            // FDT_PROP token
-            // First read the property length and nameoff
-            let prop_len_be = unsafe { *(current_address as *const u32) };
-            let prop_len = u32::from_be(prop_len_be);
-            current_address += core::mem::size_of::<u32>();
-
-            let nameoff_be = unsafe { *(current_address as *const u32) };
-            let nameoff = u32::from_be(nameoff_be); // Not used yet but read for future use
-            current_address += core::mem::size_of::<u32>();
-
-            // Get the property name from the strings block
-            let strings_block_offset = u32::from_be(dtb_header.strings_block_offset);
-            let strings_block_address = dtb_header_pointer as usize + strings_block_offset as usize;
-            let prop_name_address = strings_block_address + nameoff as usize;
-
-            // Read the property name as a null-terminated string
-            let mut byte_address = prop_name_address;
-            let mut name_length = 0;
-            loop {
-                let byte = unsafe { *(byte_address as *const u8) };
-                if byte == 0 {
-                    break;
-                }
-                byte_address += 1;
-                name_length += 1;
-            }
-
-            // Print the property name
-            debug_print!("  Property: ");
-            for i in 0..name_length {
-                let byte = unsafe { *((prop_name_address + i) as *const u8) };
-                debug_print!("{}", byte as char);
-            }
-
-            // Skip the property data
-            if prop_len > 0 {
-                debug_println!("|Length: {}",  prop_len);
-                current_address += prop_len as usize;
-            } else {
-                debug_println!("|Length: 0");
-            }
-
-            // Align to 4-byte boundary
-            current_address = (current_address + 3) & !3;
-        } else if token == 4 { // NOP token. Do nothing.
-            
-        } else if token == 9 { // End of block token.
+        } else if token == FDT_END {
             break;
         }
     }
