@@ -39,7 +39,23 @@ pub extern "C" fn kernel_main(_hart_id: usize, dtb_addr: *const u8) -> ! {
             debug_println!("{:#?}", entry);
         });
 
-        walk_structure_block(dtb_header);
+        walk_structure_block(
+            dtb_header, 
+            |node_name, depth| {
+                for _ in 0..depth {
+                    debug_print!("  ");
+                }
+
+                debug_println!("Node: {}", node_name);
+            },
+            |property_name, _, _, depth| {
+                for _ in 0..depth {
+                    debug_print!("  ");
+                }
+
+                debug_println!("  Property: {}", property_name);
+            }
+        );
     } else {
         debug_println!("Invalid DTB address provided.");
     }

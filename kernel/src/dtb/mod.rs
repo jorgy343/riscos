@@ -110,25 +110,110 @@ fn read_null_terminated_string(address: usize) -> &'static str {
     }
 }
 
-/// Read properties from a node in the device tree.
-pub fn read_node_properties(
+/// Parses a property node in the Device Tree Blob (DTB).
+/// 
+/// The FDT_PROP node structure in the DTB contains:
+/// - A 4-byte length value (big-endian) indicating property data size.
+/// - A 4-byte offset (big-endian) into the strings block for the property name
+/// - The actual property data (of the specified length).
+/// - Padding to align to a 4-byte boundary.
+/// 
+/// This function extracts all information for the property and calls the
+/// provided callback with the relevant details.
+///
+/// # Parameters
+///
+/// * `dtb_header_pointer` - Pointer to the DTB header structure.
+/// * `node_address` - Memory address where the property node data begins.
+/// * `node_depth` - Current depth in the device tree hierarchy.
+/// * `property_callback` - Function to call with the parsed property details:
+///   - Property name as a string slice.
+///   - Memory address of the property data.
+///   - Length of the property data in bytes.
+///   - Current node depth in the tree.
+///
+/// # Returns
+///
+/// The memory address immediately after this property entry, aligned to a
+/// 4-byte boundary.
+fn parse_property(
     dtb_header_pointer: *const DtbHeader,
-    node_address: usize, 
-    property_callback: impl Fn(&str, usize, usize)
+    node_address: usize,
+    node_depth: i32,
+    property_callback: &impl Fn(&str, usize, usize, i32)
 ) -> usize {
-    let dtb_header = unsafe { &*dtb_header_pointer };
+    let mut current_address = node_address;
     
-    // Get the address of the strings block.
-    let strings_block_offset = u32::from_be(dtb_header.strings_block_offset_be);
+    // Read data length and name offset. Note that data length can be zero which
+    // indicates a boolean property with implicit value of true.
+    let data_length = u32::from_be(unsafe { *(current_address as *const u32) });
+    current_address += core::mem::size_of::<u32>();
+    
+    let nameoff = u32::from_be(unsafe { *(current_address as *const u32) });
+    current_address += core::mem::size_of::<u32>();
+    
+    // Get the strings block address.
+    let strings_block_offset = u32::from_be(unsafe { &*dtb_header_pointer }.strings_block_offset_be);
     let strings_block_address = dtb_header_pointer as usize + strings_block_offset as usize;
     
-    // Skip the node's FDT_BEGIN_NODE token and name.
-    let mut current_address = node_address + core::mem::size_of::<u32>();
+    // Get the property name.
+    let property_name_address = strings_block_address + nameoff as usize;
+    let property_name = read_null_terminated_string(property_name_address);
+    
+    // Call the property callback.
+    property_callback(property_name, current_address, data_length as usize, node_depth);
+    
+    // Skip property data and align to 4-byte boundary.
+    current_address += data_length as usize;
+    current_address = (current_address + 3) & !3;
+    
+    current_address
+}
+
+/// Parses a node in the Device Tree Blob (DTB).
+/// 
+/// This function recursively processes a node in the device tree, including its
+/// name, properties, and child nodes. It calls the provided callbacks for each
+/// node and property encountered during traversal.
+///
+/// # Parameters
+///
+/// * `dtb_header_pointer` - Pointer to the DTB header structure.
+/// * `current_address` - Memory address where the node data begins (points to
+///   node name).
+/// * `node_depth` - Current depth in the device tree hierarchy.
+/// * `node_callback` - Function to call with each node's name and depth.
+///   - Node name as a string slice.
+///   - Current node depth in the tree.
+/// * `property_callback` - Function to call with the parsed property details:
+///   - Property name as a string slice.
+///   - Memory address of the property data.
+///   - Length of the property data in bytes.
+///   - Current node depth in the tree.
+///
+/// # Returns
+///
+/// The memory address immediately after this node and all its children, aligned
+/// to a 4-byte boundary.
+fn parse_node(
+    dtb_header_pointer: *const DtbHeader,
+    current_address: usize,
+    node_depth: i32,
+    node_callback: &impl Fn(&str, i32),
+    property_callback: &impl Fn(&str, usize, usize, i32)
+) -> usize {
+    // Read the node name.
     let node_name = read_null_terminated_string(current_address);
     
+    // Call the node callback.
+    node_callback(node_name, node_depth);
+    
     // Align to 4-byte boundary after the name.
-    current_address += node_name.len() + 1; // +1 for null terminator
-    current_address = (current_address + 3) & !3;
+    let mut next_address = current_address + node_name.len() + 1; // +1 for null terminator.
+    next_address = (next_address + 3) & !3;
+    
+    // Start processing tokens after the node name.
+    let mut current_address = next_address;
     
     loop {
         let token_address = unsafe { &*(current_address as *const u32) };
@@ -137,57 +222,85 @@ pub fn read_node_properties(
         
         match token {
             FDT_PROP => {
-                // Read property length and name offset.
-                let prop_len = u32::from_be(unsafe { *(current_address as *const u32) });
-                current_address += core::mem::size_of::<u32>();
-                
-                let nameoff = u32::from_be(unsafe { *(current_address as *const u32) });
-                current_address += core::mem::size_of::<u32>();
-                
-                // Get the property name from the strings block.
-                let prop_name_address = strings_block_address + nameoff as usize;
-                let prop_name = read_null_terminated_string(prop_name_address);
-                
-                // Property data starts at current_address.
-                let prop_data_address = current_address;
-                
-                // Call the callback with property information.
-                property_callback(prop_name, prop_data_address, prop_len as usize);
-                
-                // Skip property data and align to 4-byte boundary.
-                current_address += prop_len as usize;
-                current_address = (current_address + 3) & !3;
+                // Parse property and update address.
+                current_address = parse_property(dtb_header_pointer, current_address, node_depth, property_callback);
             },
             FDT_BEGIN_NODE => {
-                // We found a child node, return current position to allow caller to process it.
-                return current_address - core::mem::size_of::<u32>();
+                // Recursively parse a child node.
+                current_address = parse_node(
+                    dtb_header_pointer,
+                    current_address,
+                    node_depth + 1,
+                    node_callback,
+                    property_callback
+                );
             },
-            FDT_END_NODE | FDT_END => {
-                // End of this node's properties.
-                return current_address - core::mem::size_of::<u32>();
+            FDT_END_NODE => {
+                // End of current node.
+                return current_address;
             },
             FDT_NOP => {
                 // Nothing to do for NOP tokens.
             },
+            FDT_END => {
+                // End of entire tree - should not happen within a node.
+                debug_println!("Unexpected FDT_END token within node.");
+                return current_address;
+            },
             _ => {
-                debug_println!("Unknown FDT token: {}", token);
+                debug_println!("Unexpected token: {}", token);
             }
         }
     }
 }
 
-pub fn walk_structure_block(dtb_header_pointer: *const DtbHeader) {
+/// Traverses the structure block of a Device Tree Blob (DTB).
+/// 
+/// This function walks through the structure block in a DTB, which contains
+/// nodes and their properties arranged in a hierarchical tree structure. It
+/// processes FDT_BEGIN_NODE tokens to parse nodes and their children
+/// recursively, FDT_NOP tokens which are ignored, and stops when encountering
+/// an FDT_END token.
+///
+/// The function invokes the provided callbacks for each node and property
+/// encountered during traversal, allowing the caller to process the device tree
+/// information as needed in an allocation free way.
+///
+/// # Parameters
+///
+/// * `dtb_header_pointer` - Pointer to the DTB header structure.
+/// * `node_callback` - Function to call with each node's name and depth:
+///   - Node name as a string slice.
+///   - Current node depth in the tree.
+/// * `property_callback` - Function to call with the parsed property details:
+///   - Property name as a string slice.
+///   - Memory address of the property data.
+///   - Length of the property data in bytes.
+///   - Current node depth in the tree.
+///
+/// # Examples
+///
+/// ```
+/// walk_structure_block(
+///     dtb_header_ptr,
+///     |name, depth| println!("Node: {} at depth {}", name, depth),
+///     |name, data_adress, data_length, depth| println!("Property: {} at depth {}", name, depth)
+/// );
+/// ```
+pub fn walk_structure_block(
+    dtb_header_pointer: *const DtbHeader,
+    node_callback: impl Fn(&str, i32),
+    property_callback: impl Fn(&str, usize, usize, i32)
+) {
     // Convert the DTB header pointer to a DtbHeader reference.
     let dtb_header = unsafe { &*dtb_header_pointer };
 
-    // Calculate the structure block address. The DTB header fields are stored
-    // in big-endian format, so we need to convert them.
+    // Calculate the structure block address.
     let structure_block_offset = u32::from_be(dtb_header.structure_block_offset_be);
     let structure_block_address = dtb_header_pointer as usize + structure_block_offset as usize;
 
     // Walk the structure block.
     let mut current_address = structure_block_address;
-    let mut current_node_depth = 0;
 
     loop {
         let token_address = unsafe { &*(current_address as *const u32) };
@@ -195,38 +308,28 @@ pub fn walk_structure_block(dtb_header_pointer: *const DtbHeader) {
 
         current_address += core::mem::size_of::<u32>();
 
-        if token == FDT_BEGIN_NODE {
-            // Read the node name.
-            let node_name = read_null_terminated_string(current_address);
-
-            print_indent(current_node_depth);
-            debug_println!("Node: {}", node_name);
-
-            // Align to 4-byte boundary after the name.
-            current_address += node_name.len() + 1; // +1 for null terminator.
-            current_address = (current_address + 3) & !3;
-            
-            // Process all properties of this node.
-            current_address = read_node_properties(
-                dtb_header_pointer, 
-                current_address - core::mem::size_of::<u32>() - (node_name.len() + 1),
-                |prop_name, prop_data, prop_len| {
-                    print_indent(current_node_depth);
-                    debug_println!("  Property: {} | Length: {}", prop_name, prop_len);
-                }
-            );
-
-            current_node_depth += 1;
-        } else if token == FDT_END_NODE {
-            current_node_depth -= 1;
-        } else if token == FDT_END {
-            break;
+        match token {
+            FDT_BEGIN_NODE => {
+                // Parse this node and all its children.
+                current_address = parse_node(
+                    dtb_header_pointer, 
+                    current_address, 
+                    0, 
+                    &node_callback, 
+                    &property_callback
+                );
+            },
+            FDT_NOP => {
+                // Nothing to do for NOP tokens.
+            },
+            FDT_END => {
+                // End of the structure block.
+                break;
+            },
+            _ => {
+                debug_println!("Unexpected token at structure block root: {}", token);
+                break;
+            }
         }
-    }
-}
-
-fn print_indent(node_depth: i32) {
-    for _ in 0..node_depth {
-        debug_print!("  ");
     }
 }
