@@ -1,15 +1,16 @@
 //! Device Tree Blob (DTB) parser module.
 //!
-//! This module provides functionality to parse and traverse a Devicetree Blob (DTB)
-//! in accordance with the Devicetree Specification. It includes capabilities to:
-//! - Walk through memory reservation entries
-//! - Traverse the structure block containing nodes and properties
-//! - Parse individual nodes and properties
-//! - Extract and interpret cell values (address/size)
+//! This module provides functionality to parse and traverse a Devicetree Blob
+//! (DTB) in accordance with the Devicetree Specification without allocating
+//! onto the heap. It includes capabilities to:
+//! - Walk through memory reservation entries.
+//! - Traverse the structure block containing nodes and properties.
+//! - Parse individual nodes and properties.
+//! - Extract and interpret cell values (address/size).
 
 #![allow(dead_code)]
 
-use crate::{debug_print, debug_println};
+use crate::debug_println;
 
 //=============================================================================
 // Constants
@@ -78,7 +79,28 @@ pub struct DtbHeader {
     pub structure_block_size_be: u32,
 }
 
-/// Entry in the memory reservation block of a Device Tree Blob.
+impl DtbHeader {
+    // Returns the memory reservation block address relative to the DTB header
+    // base.
+    pub fn memory_reservation_block_address(&self) -> usize {
+        let base = self as *const _ as usize;
+        base + u32::from_be(self.memory_reservation_block_offset_be) as usize
+    }
+
+    // Returns the structure block address relative to the DTB header base.
+    pub fn structure_block_address(&self) -> usize {
+        let base = self as *const _ as usize;
+        base + u32::from_be(self.structure_block_offset_be) as usize
+    }
+    
+    // Returns the strings block address relative to the DTB header base.
+    pub fn strings_block_address(&self) -> usize {
+        let base = self as *const _ as usize;
+        base + u32::from_be(self.strings_block_offset_be) as usize
+    }
+}
+
+/// Represents an entry in the memory reservation block of a Device Tree Blob.
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct DtbMemoryReservationEntry {
@@ -100,6 +122,13 @@ pub struct DtbProperty<'a> {
     pub data_length: usize,
 }
 
+impl<'a> DtbProperty<'a> {
+    /// Parses a u32 value from the property data.
+    pub fn parse_u32_from_property(&self) -> u32 {
+        u32::from_be(unsafe { *(self.data_address as *const u32) })
+    }
+}
+
 /// Represents the address and size cells information for a node.
 #[derive(Debug, Clone, Copy)]
 pub struct CellInfo {
@@ -111,7 +140,7 @@ pub struct CellInfo {
 
 impl Default for CellInfo {
     fn default() -> Self {
-        // Default values according to the DTB specification
+        // Default values according to the DTB specification.
         Self {
             address_cells: 2,
             size_cells: 1,
@@ -125,22 +154,16 @@ impl Default for CellInfo {
 
 /// Traverses memory reservation entries in a Device Tree Blob.
 ///
-/// Walks through all memory reservation entries in the DTB, calling the provided
-/// callback function for each entry until the terminating entry (with both address
-/// and size set to 0) is encountered.
+/// Walks through all memory reservation entries in the DTB, calling the
+/// provided callback function for each entry until the terminating entry (with
+/// both address and size set to 0) is encountered.
 ///
 /// # Parameters
 ///
 /// * `dtb_header_pointer` - Pointer to the DTB header.
 /// * `callback` - Function to call for each memory reservation entry.
-pub fn walk_memory_reservation_entries(dtb_header_pointer: *const DtbHeader, callback: impl Fn(&DtbMemoryReservationEntry)) {
-    // Convert the DTB header pointer to a DtbHeader reference.
-    let dtb_header = unsafe { &*dtb_header_pointer };
-
-    // Calculate the memory reservation block address. The DTB header fields are
-    // stored in big-endian format, so we need to convert them.
-    let memory_reservation_block_offset = u32::from_be(dtb_header.memory_reservation_block_offset_be);
-    let memory_reservation_block_address = dtb_header_pointer as usize + memory_reservation_block_offset as usize;
+pub fn walk_memory_reservation_entries(dtb_header: &DtbHeader, callback: impl Fn(&DtbMemoryReservationEntry)) {
+    let memory_reservation_block_address = dtb_header.memory_reservation_block_address();
 
     let mut index = 0;
     loop {
@@ -192,18 +215,13 @@ pub fn walk_memory_reservation_entries(dtb_header_pointer: *const DtbHeader, cal
 /// );
 /// ```
 pub fn walk_structure_block(
-    dtb_header_pointer: *const DtbHeader,
+    dtb_header: &DtbHeader,
     node_callback: impl Fn(&str, i32),
     property_callback: impl Fn(&str, usize, usize, i32)
 ) {
-    // Convert the DTB header pointer to a DtbHeader reference.
-    let dtb_header = unsafe { &*dtb_header_pointer };
+    let structure_block_address = dtb_header.structure_block_address();
 
-    // Calculate the structure block address.
-    let structure_block_offset = u32::from_be(dtb_header.structure_block_offset_be);
-    let structure_block_address = dtb_header_pointer as usize + structure_block_offset as usize;
-
-    // Walk the structure block with default cell info for the root
+    // Walk the structure block with default cell info for the root.
     let mut current_address = structure_block_address;
     let default_cells_info = CellInfo::default();
 
@@ -217,7 +235,7 @@ pub fn walk_structure_block(
             FDT_BEGIN_NODE => {
                 // Parse this node and all its children.
                 current_address = parse_node(
-                    dtb_header_pointer, 
+                    dtb_header, 
                     current_address, 
                     0, 
                     default_cells_info,
@@ -244,22 +262,6 @@ pub fn walk_structure_block(
 // Node and Property Parsing
 //=============================================================================
 
-/// Reads a null-terminated string from the given address.
-fn read_null_terminated_string(address: usize) -> &'static str {
-    // Find the string length by locating the null terminator
-    let mut length = 0;
-    while unsafe { *((address + length) as *const u8) } != 0 {
-        length += 1;
-    }
-
-    // Convert the byte sequence to a str
-    unsafe { 
-        core::str::from_utf8_unchecked(
-            core::slice::from_raw_parts(address as *const u8, length)
-        )
-    }
-}
-
 /// Parses a property node in the Device Tree Blob (DTB).
 /// 
 /// The FDT_PROP node structure in the DTB contains:
@@ -273,7 +275,7 @@ fn read_null_terminated_string(address: usize) -> &'static str {
 ///
 /// # Parameters
 ///
-/// * `dtb_header_pointer` - Pointer to the DTB header structure.
+/// * `dtb_header` - Reference to the DTB header structure.
 /// * `node_address` - Memory address where the property node data begins.
 ///
 /// # Returns
@@ -283,7 +285,7 @@ fn read_null_terminated_string(address: usize) -> &'static str {
 /// - The memory address immediately after this property entry, aligned to a
 ///   4-byte boundary.
 fn parse_property(
-    dtb_header_pointer: *const DtbHeader,
+    dtb_header: &DtbHeader,
     node_address: usize,
 ) -> (DtbProperty<'static>, usize) {
     let mut current_address = node_address;
@@ -296,9 +298,8 @@ fn parse_property(
     let nameoff = u32::from_be(unsafe { *(current_address as *const u32) });
     current_address += core::mem::size_of::<u32>();
     
-    // Get the strings block address.
-    let strings_block_offset = u32::from_be(unsafe { &*dtb_header_pointer }.strings_block_offset_be);
-    let strings_block_address = dtb_header_pointer as usize + strings_block_offset as usize;
+    // Get the strings block address using the helper method
+    let strings_block_address = dtb_header.strings_block_address();
     
     // Get the property name.
     let property_name_address = strings_block_address + nameoff as usize;
@@ -315,26 +316,6 @@ fn parse_property(
     current_address = (current_address + 3) & !3;
     
     (property, current_address)
-}
-
-/// Parses a u32 value from the property data.
-fn parse_u32_from_property(address: usize) -> u32 {
-    u32::from_be(unsafe { *(address as *const u32) })
-}
-
-/// Extracts address cells and size cells information from property data.
-fn extract_cells_info(name: &str, data_address: usize, data_length: usize, current_cells_info: &mut CellInfo) {
-    if data_length != 4 {
-        return; // Cell properties must be 4 bytes (u32)
-    }
-    
-    let value = parse_u32_from_property(data_address);
-    
-    match name {
-        "#address-cells" => current_cells_info.address_cells = value,
-        "#size-cells" => current_cells_info.size_cells = value,
-        _ => (), // Not a cell property
-    }
 }
 
 /// Parses a node in the Device Tree Blob (DTB).
@@ -364,71 +345,27 @@ fn extract_cells_info(name: &str, data_address: usize, data_length: usize, curre
 /// The memory address immediately after this node and all its children, aligned
 /// to a 4-byte boundary.
 fn parse_node(
-    dtb_header_pointer: *const DtbHeader,
+    dtb_header: &DtbHeader,
     current_address: usize,
     node_depth: i32,
     parent_cells_info: CellInfo,
     node_callback: &impl Fn(&str, i32),
-    property_callback: &impl Fn(&str, usize, usize, i32)
+    property_callback: &impl Fn(&DtbProperty, i32)
 ) -> usize {
     // Read the node name.
     let node_name = read_null_terminated_string(current_address);
     
-    // Initialize with parent's cell info, will be updated if this node has its own values
+    // Initialize with parent's cell info, will be updated if this node has its
+    // own values.
     let mut current_cells_info = parent_cells_info;
     
     // Call the node callback.
     node_callback(node_name, node_depth);
     
     // Align to 4-byte boundary after the name.
-    let mut next_address = current_address + node_name.len() + 1; // +1 for null terminator.
-    next_address = (next_address + 3) & !3;
+    let mut current_address = current_address + node_name.len() + 1; // +1 for null terminator.
+    current_address = (current_address + 3) & !3;
     
-    // Start processing tokens after the node name.
-    let mut current_address = next_address;
-    
-    // First pass to find address-cells and size-cells properties
-    // We only need to look at the direct properties of this node
-    let mut first_pass_address = current_address;
-    let mut reached_child_node = false;
-    
-    // Continue until we find a child node or end node
-    while !reached_child_node {
-        let token_address = unsafe { *(first_pass_address as *const u32) };
-        let token = u32::from_be(token_address);
-        first_pass_address += core::mem::size_of::<u32>();
-        
-        match token {
-            FDT_PROP => {
-                let (property, next_address) = parse_property(dtb_header_pointer, first_pass_address);
-                
-                // Update cells info if this is a relevant property
-                if property.name == "#address-cells" || property.name == "#size-cells" {
-                    extract_cells_info(property.name, property.data_address, property.data_length, &mut current_cells_info);
-                }
-                
-                first_pass_address = next_address;
-            },
-            FDT_BEGIN_NODE => {
-                // Found a child node, stop first pass
-                reached_child_node = true;
-            },
-            FDT_END_NODE | FDT_END => {
-                // End of current node or tree, stop first pass
-                reached_child_node = true;
-            },
-            FDT_NOP => {
-                // Continue for NOPs
-            },
-            _ => {
-                // Unknown token, safer to stop
-                debug_print!("Unknown token in first pass: {}", token);
-                reached_child_node = true;
-            }
-        }
-    }
-    
-    // Now proceed with normal processing with the correct cell info
     loop {
         let token_address = unsafe { &*(current_address as *const u32) };
         let token = u32::from_be(*token_address);
@@ -436,18 +373,23 @@ fn parse_node(
         
         match token {
             FDT_PROP => {
-                // Parse property, get the struct, and update address.
-                let (property, next_address) = parse_property(dtb_header_pointer, current_address);
+                let (property, next_address) = parse_property(dtb_header, current_address);
+
+                if property.name == "#address-cells" {
+                    current_cells_info.address_cells = property.parse_u32_from_property();
+                } else if property.name == "#size-cells" {
+                    current_cells_info.size_cells = property.parse_u32_from_property();
+                }
                 
-                // Call the property callback with the parsed information.
-                property_callback(property.name, property.data_address, property.data_length, node_depth);
+                property_callback(&property, node_depth);
                 
                 current_address = next_address;
             },
             FDT_BEGIN_NODE => {
-                // Recursively parse a child node with current node's cells info
+                // Recursively parse a child node with current node's cells
+                // info.
                 current_address = parse_node(
-                    dtb_header_pointer,
+                    dtb_header,
                     current_address,
                     node_depth + 1,
                     current_cells_info,
@@ -463,46 +405,53 @@ fn parse_node(
                 // Nothing to do for NOP tokens.
             },
             FDT_END => {
-                // End of entire tree - should not happen within a node.
+                // End of entire tree - should not happen while node parsing.
                 debug_println!("Unexpected FDT_END token within node.");
                 return current_address;
             },
             _ => {
                 debug_println!("Unexpected token: {}", token);
+
+                // Try to recover by returning current address.
+                return current_address;
             }
         }
     }
 }
 
-//=============================================================================
-// Cell Value Helpers
-//=============================================================================
-
-/// Reads a value from property data using the number of cells specified.
-pub fn read_cells_value(address: usize, num_cells: u32) -> u64 {
-    let mut value = 0u64;
-    
-    for i in 0..num_cells {
-        let cell_value = u32::from_be(unsafe { *((address + (i as usize * 4)) as *const u32) });
-        value = (value << 32) | (cell_value as u64);
+/// Reads a null-terminated string from the given address.
+/// 
+/// This function reads a null-terminated string from the provided memory
+/// address and returns it as a string slice.
+/// 
+/// # Parameters
+/// 
+/// * `address` - Memory address where the string begins.
+/// 
+/// # Returns
+/// 
+/// A string slice containing the null-terminated string.
+/// 
+/// # Safety
+/// 
+/// This function is unsafe because it dereferences a raw pointer.
+/// 
+/// # Examples
+/// 
+/// ```
+/// let string = read_null_terminated_string(address);
+/// ```
+fn read_null_terminated_string(address: usize) -> &'static str {
+    // Find the string length by locating the null terminator.
+    let mut length = 0;
+    while unsafe { *((address + length) as *const u8) } != 0 {
+        length += 1;
     }
-    
-    value
-}
 
-/// Reads an address from property data using the node's address cells.
-pub fn read_address(address: usize, cells_info: CellInfo) -> u64 {
-    read_cells_value(address, cells_info.address_cells)
-}
-
-/// Reads a size from property data using the node's size cells.
-pub fn read_size(address: usize, cells_info: CellInfo) -> u64 {
-    read_cells_value(address, cells_info.size_cells)
-}
-
-/// Reads a reg property, returning the address and size values.
-pub fn read_reg_property(address: usize, cells_info: CellInfo) -> (u64, u64) {
-    let addr = read_address(address, cells_info);
-    let size = read_size(address + (cells_info.address_cells as usize * 4), cells_info);
-    (addr, size)
+    // Convert the byte sequence to a string slice.
+    unsafe { 
+        core::str::from_utf8_unchecked(
+            core::slice::from_raw_parts(address as *const u8, length)
+        )
+    }
 }

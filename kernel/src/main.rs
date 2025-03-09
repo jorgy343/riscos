@@ -21,44 +21,36 @@ static mut BUMP_ALLOCATOR: Option<BumpAllocator> = None;
 /// * `hart_id` - The hardware thread ID.
 /// * `dtb_addr` - Pointer to the device tree blob.
 #[unsafe(no_mangle)]
-pub extern "C" fn kernel_main(_hart_id: usize, dtb_addr: *const u8) -> ! {
+pub extern "C" fn kernel_main(_hart_id: usize, dtb_address: usize) -> ! {
     debug_println!("Hello, world!");
 
-    // Convert the DTB address to a DtbHeader pointer
-    let dtb_header = dtb_addr as *const dtb::DtbHeader;
+    // Convert the DTB address to a DtbHeader reference.
+    let dtb_header = unsafe { &*(dtb_address as *const dtb::DtbHeader) };
 
-    // Safely access the DTB header
-    if !dtb_header.is_null() {
-        // Access fields via the pointer
-        let header = unsafe { &*dtb_header };
+    debug_println!("DTB found at address: {:#x}", dtb_address);
+    debug_println!("{:#?}", dtb_header);
 
-        debug_println!("DTB found at address: {:#x}", dtb_addr as usize);
-        debug_println!("{:#?}", header);
+    walk_memory_reservation_entries(dtb_header, |entry| {
+        debug_println!("{:#?}", entry);
+    });
 
-        walk_memory_reservation_entries(dtb_header, |entry| {
-            debug_println!("{:#?}", entry);
-        });
-
-        walk_structure_block(
-            dtb_header, 
-            |node_name, depth| {
-                for _ in 0..depth {
-                    debug_print!("  ");
-                }
-
-                debug_println!("Node: {}", node_name);
-            },
-            |property_name, _, _, depth| {
-                for _ in 0..depth {
-                    debug_print!("  ");
-                }
-
-                debug_println!("  Property: {}", property_name);
+    walk_structure_block(
+        dtb_header,
+        |node_name, depth| {
+            for _ in 0..depth {
+                debug_print!("  ");
             }
-        );
-    } else {
-        debug_println!("Invalid DTB address provided.");
-    }
+
+            debug_println!("Node: {}", node_name);
+        },
+        |property_name, _, _, depth| {
+            for _ in 0..depth {
+                debug_print!("  ");
+            }
+
+            debug_println!("  Property: {}", property_name);
+        }
+    );
 
     loop {}
 }
