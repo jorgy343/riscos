@@ -22,8 +22,6 @@ static mut BUMP_ALLOCATOR: Option<BumpAllocator> = None;
 /// * `dtb_address` - Pointer to the device tree blob.
 #[unsafe(no_mangle)]
 pub extern "C" fn kernel_main(_hart_id: usize, dtb_address: usize) -> ! {
-    debug_println!("Hello, world!");
-
     // Convert the DTB address to a DtbHeader reference.
     let dtb_header = unsafe { &*(dtb_address as *const dtb::DtbHeader) };
 
