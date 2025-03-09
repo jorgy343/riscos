@@ -43,12 +43,12 @@ pub extern "C" fn kernel_main(_hart_id: usize, dtb_address: usize) -> ! {
 
             debug_println!("Node: {}", node_name);
         },
-        |property_name, _, _, depth| {
+        |property, cell_info, depth| {
             for _ in 0..depth {
                 debug_print!("  ");
             }
 
-            debug_println!("  Property: {}", property_name);
+            debug_println!("  Property: {}", property.name);
         }
     );
 

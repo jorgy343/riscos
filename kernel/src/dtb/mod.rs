@@ -10,6 +10,8 @@
 
 #![allow(dead_code)]
 
+use core::cell::Cell;
+
 use crate::debug_println;
 
 //=============================================================================
@@ -217,7 +219,7 @@ pub fn walk_memory_reservation_entries(dtb_header: &DtbHeader, callback: impl Fn
 pub fn walk_structure_block(
     dtb_header: &DtbHeader,
     node_callback: impl Fn(&str, i32),
-    property_callback: impl Fn(&str, usize, usize, i32)
+    property_callback: impl Fn(&DtbProperty, &CellInfo, i32)
 ) {
     let structure_block_address = dtb_header.structure_block_address();
 
@@ -350,7 +352,7 @@ fn parse_node(
     node_depth: i32,
     parent_cells_info: CellInfo,
     node_callback: &impl Fn(&str, i32),
-    property_callback: &impl Fn(&DtbProperty, i32)
+    property_callback: &impl Fn(&DtbProperty, &CellInfo, i32)
 ) -> usize {
     // Read the node name.
     let node_name = read_null_terminated_string(current_address);
@@ -381,7 +383,7 @@ fn parse_node(
                     current_cells_info.size_cells = property.parse_u32_from_property();
                 }
                 
-                property_callback(&property, node_depth);
+                property_callback(&property, &current_cells_info, node_depth);
                 
                 current_address = next_address;
             },
