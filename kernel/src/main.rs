@@ -19,7 +19,7 @@ static mut BUMP_ALLOCATOR: Option<BumpAllocator> = None;
 /// 
 /// # Arguments
 /// * `hart_id` - The hardware thread ID.
-/// * `dtb_addr` - Pointer to the device tree blob.
+/// * `dtb_address` - Pointer to the device tree blob.
 #[unsafe(no_mangle)]
 pub extern "C" fn kernel_main(_hart_id: usize, dtb_address: usize) -> ! {
     debug_println!("Hello, world!");
