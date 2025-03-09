@@ -162,7 +162,7 @@ impl Default for CellInfo {
 ///
 /// # Parameters
 ///
-/// * `dtb_header_pointer` - Pointer to the DTB header.
+/// * `dtb_header` - Reference to the DTB header.
 /// * `callback` - Function to call for each memory reservation entry.
 pub fn walk_memory_reservation_entries(dtb_header: &DtbHeader, callback: impl Fn(&DtbMemoryReservationEntry)) {
     let memory_reservation_block_address = dtb_header.memory_reservation_block_address();
@@ -197,23 +197,22 @@ pub fn walk_memory_reservation_entries(dtb_header: &DtbHeader, callback: impl Fn
 ///
 /// # Parameters
 ///
-/// * `dtb_header_pointer` - Pointer to the DTB header structure.
+/// * `dtb_header` - Reference to the DTB header structure.
 /// * `node_callback` - Function to call with each node's name and depth:
 ///   - Node name as a string slice.
 ///   - Current node depth in the tree.
 /// * `property_callback` - Function to call with the parsed property details:
-///   - Property name as a string slice.
-///   - Memory address of the property data.
-///   - Length of the property data in bytes.
+///   - Property object containing name, data address, and data length.
+///   - Cell info for the current node (address_cells and size_cells).
 ///   - Current node depth in the tree.
 ///
 /// # Examples
 ///
 /// ```
 /// walk_structure_block(
-///     dtb_header_ptr,
+///     dtb_header,
 ///     |name, depth| println!("Node: {} at depth {}", name, depth),
-///     |name, data_address, data_length, depth| println!("Property: {} at depth {}", name, depth)
+///     |property, cell_info, depth| println!("Property: {} at depth {}", property.name, depth)
 /// );
 /// ```
 pub fn walk_structure_block(
@@ -272,7 +271,7 @@ pub fn walk_structure_block(
 ///
 /// # Parameters
 ///
-/// * `dtb_header_pointer` - Pointer to the DTB header structure.
+/// * `dtb_header` - Reference to the DTB header structure.
 /// * `current_address` - Memory address where the node data begins (points to
 ///   node name).
 /// * `node_depth` - Current depth in the device tree hierarchy.
@@ -281,9 +280,8 @@ pub fn walk_structure_block(
 ///   - Node name as a string slice.
 ///   - Current node depth in the tree.
 /// * `property_callback` - Function to call with the parsed property details:
-///   - Property name as a string slice.
-///   - Memory address of the property data.
-///   - Length of the property data in bytes.
+///   - Property object containing name, data address, and data length.
+///   - Cell info for the current node (address_cells and size_cells).
 ///   - Current node depth in the tree.
 ///
 /// # Returns
@@ -292,7 +290,7 @@ pub fn walk_structure_block(
 /// to a 4-byte boundary.
 fn parse_node(
     dtb_header: &DtbHeader,
-    current_address: usize,
+    mut current_address: usize,
     node_depth: i32,
     parent_cells_info: CellInfo,
     node_callback: &impl Fn(&str, i32),
@@ -309,7 +307,7 @@ fn parse_node(
     node_callback(node_name, node_depth);
     
     // Align to 4-byte boundary after the name.
-    let mut current_address = current_address + node_name.len() + 1; // +1 for null terminator.
+    current_address = current_address + node_name.len() + 1; // +1 for null terminator.
     current_address = (current_address + 3) & !3;
     
     loop {
@@ -389,24 +387,21 @@ fn parse_node(
 /// Processes property tokens in a Device Tree Blob node.
 /// 
 /// This function sequentially processes FDT_PROP tokens found in a node,
-/// updating cell info and invoking the property callback for each property. It
-/// stops processing when it encounters any token that is not an FDT_PROP.
+/// invoking the property callback for each property. It stops processing when 
+/// it encounters any token that is not an FDT_PROP or FDT_NOP.
 ///
 /// # Parameters
 ///
 /// * `dtb_header` - Reference to the DTB header structure.
 /// * `current_address` - Memory address where property processing should begin.
-/// * `current_cells_info` - Mutable reference to cell info that may be updated
-///   by properties.
+/// * `current_cells_info` - Cell info for the current node.
 /// * `node_depth` - Current depth in the device tree hierarchy.
 /// * `property_callback` - Function to call for each property processed.
 ///
 /// # Returns
 ///
-/// A tuple containing:
-/// - The updated CellInfo structure after processing all properties.
-/// - The memory address immediately after the last property token, pointing to
-///   the next non-property token in the device tree.
+/// The memory address immediately after the last property token, pointing to
+/// the next non-property token in the device tree.
 fn process_properties(
     dtb_header: &DtbHeader,
     mut current_address: usize,
@@ -445,7 +440,7 @@ fn process_properties(
 /// 
 /// The FDT_PROP node structure in the DTB contains:
 /// - A 4-byte length value (big-endian) indicating property data size.
-/// - A 4-byte offset (big-endian) into the strings block for the property name
+/// - A 4-byte offset (big-endian) into the strings block for the property name.
 /// - The actual property data (of the specified length).
 /// - Padding to align to a 4-byte boundary.
 /// 
