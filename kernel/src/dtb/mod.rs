@@ -264,6 +264,183 @@ pub fn walk_structure_block(
 // Node and Property Parsing
 //=============================================================================
 
+/// Parses a node in the Device Tree Blob (DTB).
+/// 
+/// This function recursively processes a node in the device tree, including its
+/// name, properties, and child nodes. It calls the provided callbacks for each
+/// node and property encountered during traversal.
+///
+/// # Parameters
+///
+/// * `dtb_header_pointer` - Pointer to the DTB header structure.
+/// * `current_address` - Memory address where the node data begins (points to
+///   node name).
+/// * `node_depth` - Current depth in the device tree hierarchy.
+/// * `parent_cells_info` - Address and size cells information from the parent node.
+/// * `node_callback` - Function to call with each node's name and depth.
+///   - Node name as a string slice.
+///   - Current node depth in the tree.
+/// * `property_callback` - Function to call with the parsed property details:
+///   - Property name as a string slice.
+///   - Memory address of the property data.
+///   - Length of the property data in bytes.
+///   - Current node depth in the tree.
+///
+/// # Returns
+///
+/// The memory address immediately after this node and all its children, aligned
+/// to a 4-byte boundary.
+fn parse_node(
+    dtb_header: &DtbHeader,
+    current_address: usize,
+    node_depth: i32,
+    parent_cells_info: CellInfo,
+    node_callback: &impl Fn(&str, i32),
+    property_callback: &impl Fn(&DtbProperty, &CellInfo, i32)
+) -> usize {
+    // Read the node name.
+    let node_name = read_null_terminated_string(current_address);
+    
+    // Initialize with parent's cell info, will be updated if this node has its
+    // own values.
+    let mut current_cells_info = parent_cells_info;
+    
+    // Call the node callback.
+    node_callback(node_name, node_depth);
+    
+    // Align to 4-byte boundary after the name.
+    let mut current_address = current_address + node_name.len() + 1; // +1 for null terminator.
+    current_address = (current_address + 3) & !3;
+    
+    loop {
+        let token_address = unsafe { &*(current_address as *const u32) };
+        let token = u32::from_be(*token_address);
+
+        current_address += core::mem::size_of::<u32>();
+        
+        match token {
+            FDT_PROP => {
+                // We found a property - back up to the token and process all
+                // properties.
+                current_address -= core::mem::size_of::<u32>();
+                
+                // Perform a pre-pass to process special properties that affect
+                // cell info.
+                process_properties(
+                    dtb_header,
+                    current_address,
+                    current_cells_info,
+                    node_depth,
+                    |property, _, _| {
+                        if property.name == "#address-cells" {
+                            current_cells_info.address_cells = property.parse_u32_from_property();
+                        } else if property.name == "#size-cells" {
+                            current_cells_info.size_cells = property.parse_u32_from_property();
+                        }
+                    }
+                );
+
+                // Process all properties with updated cell info.
+                let next_address = process_properties(
+                    dtb_header,
+                    current_address,
+                    current_cells_info,
+                    node_depth,
+                    property_callback
+                );
+                
+                // Update address.
+                current_address = next_address;
+            },
+            FDT_BEGIN_NODE => {
+                // Recursively parse a child node with current node's cells
+                // info.
+                current_address = parse_node(
+                    dtb_header,
+                    current_address,
+                    node_depth + 1,
+                    current_cells_info,
+                    node_callback,
+                    property_callback
+                );
+            },
+            FDT_END_NODE => {
+                // End of current node.
+                return current_address;
+            },
+            FDT_NOP => {
+                // Nothing to do for NOP tokens.
+            },
+            FDT_END => {
+                // End of entire tree - should not happen while node parsing.
+                debug_println!("Unexpected FDT_END token within node.");
+                return current_address;
+            },
+            _ => {
+                debug_println!("Unexpected token: {}", token);
+
+                // Try to recover by returning current address.
+                return current_address;
+            }
+        }
+    }
+}
+
+/// Processes property tokens in a Device Tree Blob node.
+/// 
+/// This function sequentially processes FDT_PROP tokens found in a node,
+/// updating cell info and invoking the property callback for each property. It
+/// stops processing when it encounters any token that is not an FDT_PROP.
+///
+/// # Parameters
+///
+/// * `dtb_header` - Reference to the DTB header structure.
+/// * `current_address` - Memory address where property processing should begin.
+/// * `current_cells_info` - Mutable reference to cell info that may be updated
+///   by properties.
+/// * `node_depth` - Current depth in the device tree hierarchy.
+/// * `property_callback` - Function to call for each property processed.
+///
+/// # Returns
+///
+/// A tuple containing:
+/// - The updated CellInfo structure after processing all properties.
+/// - The memory address immediately after the last property token, pointing to
+///   the next non-property token in the device tree.
+fn process_properties(
+    dtb_header: &DtbHeader,
+    mut current_address: usize,
+    current_cells_info: CellInfo,
+    node_depth: i32,
+    mut property_callback: impl FnMut(&DtbProperty, &CellInfo, i32)
+) -> usize {
+    loop {
+        // Read the token at the current address.
+        let token_address = unsafe { &*(current_address as *const u32) };
+        let token = u32::from_be(*token_address);
+        
+        // Process only property tokens and exit on any other token.
+        if token != FDT_PROP {
+            // Return the address of the non-property token we just read We need
+            // to back up to the token itself since parse_node expects to read
+            // the token.
+            return current_address;
+        }
+
+        // Move past the token.
+        current_address += core::mem::size_of::<u32>();
+        
+        // Parse this property.
+        let (property, next_address) = parse_property(dtb_header, current_address);
+        
+        // Call the property callback.
+        property_callback(&property, &current_cells_info, node_depth);
+        
+        // Update the current address.
+        current_address = next_address;
+    }
+}
+
 /// Parses a property node in the Device Tree Blob (DTB).
 /// 
 /// The FDT_PROP node structure in the DTB contains:
@@ -318,107 +495,6 @@ fn parse_property(
     current_address = (current_address + 3) & !3;
     
     (property, current_address)
-}
-
-/// Parses a node in the Device Tree Blob (DTB).
-/// 
-/// This function recursively processes a node in the device tree, including its
-/// name, properties, and child nodes. It calls the provided callbacks for each
-/// node and property encountered during traversal.
-///
-/// # Parameters
-///
-/// * `dtb_header_pointer` - Pointer to the DTB header structure.
-/// * `current_address` - Memory address where the node data begins (points to
-///   node name).
-/// * `node_depth` - Current depth in the device tree hierarchy.
-/// * `parent_cells_info` - Address and size cells information from the parent node.
-/// * `node_callback` - Function to call with each node's name and depth.
-///   - Node name as a string slice.
-///   - Current node depth in the tree.
-/// * `property_callback` - Function to call with the parsed property details:
-///   - Property name as a string slice.
-///   - Memory address of the property data.
-///   - Length of the property data in bytes.
-///   - Current node depth in the tree.
-///
-/// # Returns
-///
-/// The memory address immediately after this node and all its children, aligned
-/// to a 4-byte boundary.
-fn parse_node(
-    dtb_header: &DtbHeader,
-    current_address: usize,
-    node_depth: i32,
-    parent_cells_info: CellInfo,
-    node_callback: &impl Fn(&str, i32),
-    property_callback: &impl Fn(&DtbProperty, &CellInfo, i32)
-) -> usize {
-    // Read the node name.
-    let node_name = read_null_terminated_string(current_address);
-    
-    // Initialize with parent's cell info, will be updated if this node has its
-    // own values.
-    let mut current_cells_info = parent_cells_info;
-    
-    // Call the node callback.
-    node_callback(node_name, node_depth);
-    
-    // Align to 4-byte boundary after the name.
-    let mut current_address = current_address + node_name.len() + 1; // +1 for null terminator.
-    current_address = (current_address + 3) & !3;
-    
-    loop {
-        let token_address = unsafe { &*(current_address as *const u32) };
-        let token = u32::from_be(*token_address);
-        current_address += core::mem::size_of::<u32>();
-        
-        match token {
-            FDT_PROP => {
-                let (property, next_address) = parse_property(dtb_header, current_address);
-
-                if property.name == "#address-cells" {
-                    current_cells_info.address_cells = property.parse_u32_from_property();
-                } else if property.name == "#size-cells" {
-                    current_cells_info.size_cells = property.parse_u32_from_property();
-                }
-                
-                property_callback(&property, &current_cells_info, node_depth);
-                
-                current_address = next_address;
-            },
-            FDT_BEGIN_NODE => {
-                // Recursively parse a child node with current node's cells
-                // info.
-                current_address = parse_node(
-                    dtb_header,
-                    current_address,
-                    node_depth + 1,
-                    current_cells_info,
-                    node_callback,
-                    property_callback
-                );
-            },
-            FDT_END_NODE => {
-                // End of current node.
-                return current_address;
-            },
-            FDT_NOP => {
-                // Nothing to do for NOP tokens.
-            },
-            FDT_END => {
-                // End of entire tree - should not happen while node parsing.
-                debug_println!("Unexpected FDT_END token within node.");
-                return current_address;
-            },
-            _ => {
-                debug_println!("Unexpected token: {}", token);
-
-                // Try to recover by returning current address.
-                return current_address;
-            }
-        }
-    }
 }
 
 /// Reads a null-terminated string from the given address.
