@@ -125,9 +125,57 @@ pub struct DtbProperty<'a> {
 }
 
 impl<'a> DtbProperty<'a> {
-    /// Parses a u32 value from the property data.
-    pub fn parse_u32_from_property(&self) -> u32 {
+    /// Parses the property data as a u32 value.
+    /// 
+    /// This function reads the property data as a big-endian u32 value and
+    /// returns it as a native-endian u32 value.
+    pub fn get_property_data_as_u32(&self) -> u32 {
         u32::from_be(unsafe { *(self.data_address as *const u32) })
+    }
+
+    pub fn get_property_data_as_reg(&self, cells_info: &CellInfo, address_range_callback: impl Fn(u64, u64)) {
+        // Parse the property data as a series of address/size pairs according
+        // to the DTB spec for "reg" properties.
+        //
+        // Each entry consists of an address and size value, where the address
+        // is represented using `address_cells` 32-bit cells and the size using
+        // `size_cells` 32-bit cells. This method invokes the callback for each
+        // address/size pair found in the property data.
+        let mut offset = 0;
+
+        // Determine how many entries we have based on the total data length.
+        let address_bytes = cells_info.address_cells as usize * 4;
+        let size_bytes = cells_info.size_cells as usize * 4;
+        let entry_bytes = address_bytes + size_bytes;
+
+        // Process each entry if we have enough data.
+        while offset + entry_bytes <= self.data_length {
+            let mut address: u64 = 0;
+            let mut size: u64 = 0;
+            
+            // Read the address value (composed of address_cells 32-bit cells).
+            for i in 0..cells_info.address_cells as usize {
+                let cell_addr = self.data_address + offset + (i * 4);
+                let cell_value = u32::from_be(unsafe { *(cell_addr as *const u32) });
+
+                address = (address << 32) | cell_value as u64;
+            }
+
+            offset += address_bytes;
+            
+            // Read the size value (composed of size_cells 32-bit cells).
+            for i in 0..cells_info.size_cells as usize {
+                let cell_addr = self.data_address + offset + (i * 4);
+                let cell_value = u32::from_be(unsafe { *(cell_addr as *const u32) });
+
+                size = (size << 32) | cell_value as u64;
+            }
+
+            offset += size_bytes;
+            
+            // Invoke the callback with this address/size pair.
+            address_range_callback(address, size);
+        }
     }
 }
 
@@ -331,9 +379,9 @@ fn parse_node(
                     node_depth,
                     |property, _, _| {
                         if property.name == "#address-cells" {
-                            current_cells_info.address_cells = property.parse_u32_from_property();
+                            current_cells_info.address_cells = property.get_property_data_as_u32();
                         } else if property.name == "#size-cells" {
-                            current_cells_info.size_cells = property.parse_u32_from_property();
+                            current_cells_info.size_cells = property.get_property_data_as_u32();
                         }
                     }
                 );

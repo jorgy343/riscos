@@ -41,15 +41,25 @@ pub extern "C" fn kernel_main(_hart_id: usize, dtb_address: usize) -> ! {
 
             debug_println!("Node: {}", node_name);
         },
-        |property, _cell_info, depth| {
+        |property, cell_info, depth| {
             for _ in 0..depth {
                 debug_print!("  ");
             }
 
             if property.name == "#address-cells" {
-                debug_println!("  Property: {} ({})", property.name, property.parse_u32_from_property());
+                debug_println!("  Property: {} ({})", property.name, property.get_property_data_as_u32());
             } else if property.name == "#size-cells" {
-                debug_println!("  Property: {} ({})", property.name, property.parse_u32_from_property());
+                debug_println!("  Property: {} ({})", property.name, property.get_property_data_as_u32());
+            } else if property.name == "reg" {
+                debug_println!("  Property: {}", property.name);
+
+                property.get_property_data_as_reg(cell_info, |address, size| {
+                    for _ in 0..depth {
+                        debug_print!("  ");
+                    }
+
+                    debug_println!("    Reg entry: address {:#x}-{:#x}, size {:#x}", address, address + size, size);
+                });
             } else {
                 debug_println!("  Property: {}", property.name);
             }
