@@ -1,0 +1,12 @@
+{
+    "name": "RiscOS",
+    "image": "riscos-devcontainer",
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "rust-lang.rust-analyzer",
+                "dnut.rewrap-revived"
+            ]
+        }
+    }
+}
