@@ -111,6 +111,13 @@ pub struct DtbMemoryReservationEntry {
     pub size: u64,
 }
 
+/// Represents a node in a Device Tree Blob.
+#[derive(Debug, Clone, Copy)]
+pub struct DtbNode<'a> {
+    /// Name of the node.
+    pub name: &'a str,
+}
+
 /// Represents property information from a Device Tree Blob.
 #[derive(Debug, Clone, Copy)]
 pub struct DtbProperty<'a> {
@@ -244,10 +251,11 @@ pub fn walk_memory_reservation_entries(dtb_header: &DtbHeader, callback: impl Fn
 /// # Parameters
 ///
 /// * `dtb_header` - Reference to the DTB header structure.
-/// * `node_callback` - Function to call with each node's name and depth:
-///   - Node name as a string slice.
+/// * `node_callback` - Function to call with each node and its depth:
+///   - Node object containing the node's name.
 ///   - Current node depth in the tree.
 /// * `property_callback` - Function to call with the parsed property details:
+///   - Node object containing the node's name.
 ///   - Property object containing name, data address, and data length.
 ///   - Cell info for the current node (address_cells and size_cells).
 ///   - Current node depth in the tree.
@@ -257,14 +265,14 @@ pub fn walk_memory_reservation_entries(dtb_header: &DtbHeader, callback: impl Fn
 /// ```
 /// walk_structure_block(
 ///     dtb_header,
-///     |name, depth| println!("Node: {} at depth {}", name, depth),
-///     |property, cell_info, depth| println!("Property: {} at depth {}", property.name, depth)
+///     |node, depth| println!("Node: {} at depth {}", node.name, depth),
+///     |node, property, cell_info, depth| println!("Property: {} at depth {}", property.name, depth)
 /// );
 /// ```
 pub fn walk_structure_block(
     dtb_header: &DtbHeader,
-    mut node_callback: impl FnMut(&str, i32),
-    mut property_callback: impl FnMut(&DtbProperty, &CellInfo, i32)
+    mut node_callback: impl FnMut(&DtbNode, i32),
+    mut property_callback: impl FnMut(&DtbNode, &DtbProperty, &CellInfo, i32)
 ) {
     let structure_block_address = dtb_header.structure_block_address();
 
@@ -322,10 +330,11 @@ pub fn walk_structure_block(
 ///   node name).
 /// * `node_depth` - Current depth in the device tree hierarchy.
 /// * `parent_cells_info` - Address and size cells information from the parent node.
-/// * `node_callback` - Function to call with each node's name and depth.
-///   - Node name as a string slice.
+/// * `node_callback` - Function to call with each node and its depth.
+///   - Node object containing the node's name.
 ///   - Current node depth in the tree.
 /// * `property_callback` - Function to call with the parsed property details:
+///   - Node object containing the node's name.
 ///   - Property object containing name, data address, and data length.
 ///   - Cell info for the current node (address_cells and size_cells).
 ///   - Current node depth in the tree.
@@ -339,18 +348,23 @@ fn parse_node(
     mut current_address: usize,
     node_depth: i32,
     parent_cells_info: CellInfo,
-    node_callback: &mut impl FnMut(&str, i32),
-    property_callback: &mut impl FnMut(&DtbProperty, &CellInfo, i32)
+    node_callback: &mut impl FnMut(&DtbNode, i32),
+    property_callback: &mut impl FnMut(&DtbNode, &DtbProperty, &CellInfo, i32)
 ) -> usize {
     // Read the node name.
     let node_name = read_null_terminated_string(current_address);
+    
+    // Create a DtbNode instance.
+    let node = DtbNode {
+        name: node_name,
+    };
     
     // Initialize with parent's cell info, will be updated if this node has its
     // own values.
     let mut current_cells_info = parent_cells_info;
     
     // Call the node callback.
-    node_callback(node_name, node_depth);
+    node_callback(&node, node_depth);
     
     // Align to 4-byte boundary after the name.
     current_address = current_address + node_name.len() + 1; // +1 for null terminator.
@@ -373,9 +387,10 @@ fn parse_node(
                 process_properties(
                     dtb_header,
                     current_address,
+                    &node,
                     current_cells_info,
                     node_depth,
-                    |property, _, _| {
+                    |_, property, _, _| {
                         if property.name == "#address-cells" {
                             current_cells_info.address_cells = property.get_property_data_as_u32();
                         } else if property.name == "#size-cells" {
@@ -388,9 +403,10 @@ fn parse_node(
                 let next_address = process_properties(
                     dtb_header,
                     current_address,
+                    &node,
                     current_cells_info,
                     node_depth,
-                    |prop, cells, depth| property_callback(prop, cells, depth)
+                    |node, prop, cells, depth| property_callback(node, prop, cells, depth)
                 );
                 
                 // Update address.
@@ -440,6 +456,7 @@ fn parse_node(
 ///
 /// * `dtb_header` - Reference to the DTB header structure.
 /// * `current_address` - Memory address where property processing should begin.
+/// * `node` - Reference to the node containing these properties.
 /// * `current_cells_info` - Cell info for the current node.
 /// * `node_depth` - Current depth in the device tree hierarchy.
 /// * `property_callback` - Function to call for each property processed.
@@ -451,9 +468,10 @@ fn parse_node(
 fn process_properties(
     dtb_header: &DtbHeader,
     mut current_address: usize,
+    node: &DtbNode,
     current_cells_info: CellInfo,
     node_depth: i32,
-    mut property_callback: impl FnMut(&DtbProperty, &CellInfo, i32)
+    mut property_callback: impl FnMut(&DtbNode, &DtbProperty, &CellInfo, i32)
 ) -> usize {
     loop {
         // Read the token at the current address.
@@ -475,7 +493,7 @@ fn process_properties(
         let (property, next_address) = parse_property(dtb_header, current_address);
         
         // Call the property callback.
-        property_callback(&property, &current_cells_info, node_depth);
+        property_callback(node, &property, &current_cells_info, node_depth);
         
         // Update the current address.
         current_address = next_address;

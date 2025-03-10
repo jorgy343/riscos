@@ -8,7 +8,6 @@ mod memory;
 mod dtb;
 
 use core::arch::global_asm;
-use core::cell::UnsafeCell;
 use core::panic::PanicInfo;
 
 use dtb::{walk_memory_reservation_entries, walk_structure_block};
@@ -39,14 +38,14 @@ pub extern "C" fn kernel_main(_hart_id: usize, dtb_address: usize) -> ! {
 
     walk_structure_block(
         dtb_header,
-        |node_name, depth| {
+        |node, depth| {
             for _ in 0..depth {
                 debug_print!("  ");
             }
 
-            debug_println!("Node: {}", node_name);
+            debug_println!("Node: {}", node.name);
         },
-        |property, cell_info, depth| {
+        |_, property, cell_info, depth| {
             for _ in 0..depth {
                 debug_print!("  ");
             }

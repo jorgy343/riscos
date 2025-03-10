@@ -64,42 +64,29 @@ pub fn populate_memory_map_from_dtb(memory_map: &mut MemoryMap, dtb_header: &Dtb
     const PAGE_SIZE: usize = 4096;
     const PAGE_MASK: usize = !(PAGE_SIZE - 1);
     
-    // Use a shared state to track whether we're in a memory node
-    use core::cell::Cell;
-    let in_memory_node = Cell::new(false);
-    
-    // Store the current cell info for proper address/size interpretation.
-    let mut current_cells_info = CellInfo::default();
-    
     walk_structure_block(
         dtb_header,
-        |node_name, _depth| {
-            // Check if we're entering a memory node (either "memory" or
-            // "memory@x").
-            if node_name == "memory" || node_name.starts_with("memory@") {
-                in_memory_node.set(true);
-            } else {
-                in_memory_node.set(false);
+        |_, _| {},
+        |node, property, cells_info, _depth| {
+            if node.name != "memory" && !node.name.starts_with("memory@") {
+                return;
             }
-        },
-        |property, cells_info, _depth| {
-            // Store the current cell info for reference.
-            current_cells_info = *cells_info;
-            
-            // Only process "reg" properties that are inside memory nodes
-            if in_memory_node.get() && property.name == "reg" {
-                // Extract memory regions from the reg property
-                property.get_property_data_as_reg(&current_cells_info, |address, size| {
+                        
+            // Only process "reg" properties that are inside memory nodes.
+            if property.name == "reg" {
+                // Extract memory regions from the reg property.
+                property.get_property_data_as_reg(&cells_info, |address, size| {
                     let region_start_address = address as usize;
                     let region_end_address = region_start_address + size as usize;
                     
-                    // Align the start address up to the next 4KiB boundary
+                    // Align the start address up to the next 4KiB boundary.
                     let aligned_start_address = (region_start_address + PAGE_SIZE - 1) & PAGE_MASK;
                     
-                    // Align the end address down to the previous 4KiB boundary
+                    // Align the end address down to the previous 4KiB boundary.
                     let aligned_end_address = region_end_address & PAGE_MASK;
                     
-                    // Only add regions that are at least 4KiB in size after alignment
+                    // Only add regions that are at least 4KiB in size after
+                    // alignment.
                     if aligned_end_address > aligned_start_address {
                         let region_size = aligned_end_address - aligned_start_address;
                         

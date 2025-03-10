@@ -1,6 +1,6 @@
 SECTIONS
 {
-    . = 0x80200000;
+    . = 0x0;
     _kernel_begin = .;
 
     .text : ALIGN(4K) {
