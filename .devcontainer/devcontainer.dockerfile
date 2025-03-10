@@ -47,7 +47,7 @@ COPY --from=build /opt/opensbi /opt/opensbi
 RUN apt-get -y update
 RUN apt-get -y upgrade
 
-RUN apt-get install curl build-essential libglib2.0-0 libslirp0 git
+RUN apt-get -y install curl build-essential libglib2.0-0 libslirp0 git
 
 ENV PATH="$PATH:/opt/riscv-unknown/bin:/opt/riscv-linux/bin:/opt/qemu-system-riscv64/bin"
 
