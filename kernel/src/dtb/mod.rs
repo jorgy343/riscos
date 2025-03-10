@@ -10,8 +10,6 @@
 
 #![allow(dead_code)]
 
-use core::cell::Cell;
-
 use crate::debug_println;
 
 //=============================================================================
@@ -133,7 +131,7 @@ impl<'a> DtbProperty<'a> {
         u32::from_be(unsafe { *(self.data_address as *const u32) })
     }
 
-    pub fn get_property_data_as_reg(&self, cells_info: &CellInfo, address_range_callback: impl Fn(u64, u64)) {
+    pub fn get_property_data_as_reg(&self, cells_info: &CellInfo, mut address_range_callback: impl FnMut(u64, u64)) {
         // Parse the property data as a series of address/size pairs according
         // to the DTB spec for "reg" properties.
         //
@@ -265,8 +263,8 @@ pub fn walk_memory_reservation_entries(dtb_header: &DtbHeader, callback: impl Fn
 /// ```
 pub fn walk_structure_block(
     dtb_header: &DtbHeader,
-    node_callback: impl Fn(&str, i32),
-    property_callback: impl Fn(&DtbProperty, &CellInfo, i32)
+    mut node_callback: impl FnMut(&str, i32),
+    mut property_callback: impl FnMut(&DtbProperty, &CellInfo, i32)
 ) {
     let structure_block_address = dtb_header.structure_block_address();
 
@@ -288,8 +286,8 @@ pub fn walk_structure_block(
                     current_address, 
                     0, 
                     default_cells_info,
-                    &node_callback, 
-                    &property_callback
+                    &mut node_callback, 
+                    &mut property_callback
                 );
             },
             FDT_NOP => {
@@ -341,8 +339,8 @@ fn parse_node(
     mut current_address: usize,
     node_depth: i32,
     parent_cells_info: CellInfo,
-    node_callback: &impl Fn(&str, i32),
-    property_callback: &impl Fn(&DtbProperty, &CellInfo, i32)
+    node_callback: &mut impl FnMut(&str, i32),
+    property_callback: &mut impl FnMut(&DtbProperty, &CellInfo, i32)
 ) -> usize {
     // Read the node name.
     let node_name = read_null_terminated_string(current_address);
@@ -392,7 +390,7 @@ fn parse_node(
                     current_address,
                     current_cells_info,
                     node_depth,
-                    property_callback
+                    |prop, cells, depth| property_callback(prop, cells, depth)
                 );
                 
                 // Update address.

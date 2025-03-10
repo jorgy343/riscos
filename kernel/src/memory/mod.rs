@@ -2,6 +2,7 @@
 
 pub mod bump_allocator;
 pub mod mmu;
+pub mod memory_map;
 
 /// Represents a physical page number (PPN).
 /// 

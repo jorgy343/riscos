@@ -1,19 +1,24 @@
 #![no_std]
 #![no_main]
 
+#[allow(static_mut_refs)]
+
 mod sbi;
 mod memory;
 mod dtb;
 
 use core::arch::global_asm;
+use core::cell::UnsafeCell;
 use core::panic::PanicInfo;
 
 use dtb::{walk_memory_reservation_entries, walk_structure_block};
 use memory::bump_allocator::BumpAllocator;
 use memory::mmu::PageTable;
+use memory::memory_map::{MemoryMap, populate_memory_map_from_dtb};
 
 static mut ROOT_PAGE_TABLE: PageTable = PageTable::new();
 static mut BUMP_ALLOCATOR: Option<BumpAllocator> = None;
+static mut MEMORY_MAP: MemoryMap = MemoryMap::new();
 
 /// Main kernel entry point. This function is called as early as possible in the boot process.
 /// 
@@ -65,6 +70,20 @@ pub extern "C" fn kernel_main(_hart_id: usize, dtb_address: usize) -> ! {
             }
         }
     );
+
+    // Populate the memory map using information from the device tree blob.
+    unsafe {
+        let memory_map = &mut *&raw mut MEMORY_MAP;
+        populate_memory_map_from_dtb(memory_map, dtb_header);
+        
+        // Print out the detected memory regions for debugging.
+        debug_println!("Memory regions detected:");
+
+        memory_map.walk_regions(|region| {
+            debug_println!("  Memory region: {:#x}-{:#x}, size: {:#x}", 
+                region.start, region.end, region.size());
+        });
+    }
 
     loop {}
 }
