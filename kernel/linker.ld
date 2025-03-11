@@ -34,5 +34,5 @@ SECTIONS
     . = . + 4K;
     _stack_end = .;
 
-    _kernel_end = .;
+    _kernel_end_exclusive = .;
 }

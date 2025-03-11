@@ -3,7 +3,6 @@
 
 mod dtb;
 mod memory;
-#[allow(static_mut_refs)]
 mod sbi;
 
 use core::arch::global_asm;
@@ -13,7 +12,7 @@ use dtb::{walk_memory_reservation_entries, walk_structure_block};
 use memory::bump_allocator::BumpAllocator;
 use memory::memory_map::{
     MemoryMap, adjust_memory_map_from_reserved_regions_in_dtb, populate_memory_map_from_dtb,
-    remove_reserved_memory_region,
+
 };
 use memory::mmu::PageTable;
 
@@ -105,13 +104,21 @@ pub extern "C" fn kernel_main(hart_id: usize, dtb_address: usize) -> ! {
         // prevent the kernel from being overwritten.
         unsafe extern "C" {
             static _kernel_begin: usize;
-            static _kernel_end: usize;
+            static _kernel_end_exclusive: usize;
         }
 
         let kernel_start = &_kernel_begin as *const _ as usize;
-        let kernel_end = &_kernel_end as *const _ as usize;
+        let kernel_end_exclusive = &_kernel_end_exclusive as *const _ as usize;
 
-        remove_reserved_memory_region(memory_map, kernel_start, kernel_end);
+        let kernel_size = kernel_end_exclusive - kernel_start;
+        debug_println!(
+            "Kernel memory region: {:#x}-{:#x}, size: {:#x}",
+            kernel_start,
+            kernel_end_exclusive - 1,
+            kernel_size
+        );
+
+        memory_map.carve_out_region(kernel_start, kernel_size);
 
         // Print out the detected memory regions for debugging.
         debug_println!("Memory regions detected:");
@@ -120,8 +127,8 @@ pub extern "C" fn kernel_main(hart_id: usize, dtb_address: usize) -> ! {
             debug_println!(
                 "  Memory region: {:#x}-{:#x}, size: {:#x}",
                 region.start,
-                region.end,
-                region.size()
+                region.end(),
+                region.size
             );
         });
     }
