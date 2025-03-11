@@ -7,6 +7,15 @@ pub struct MemoryMap {
 }
 
 impl MemoryMap {
+    /// Creates a new memory map with no regions.
+    /// 
+    /// # Returns
+    /// 
+    /// A new memory map instance.
+    /// 
+    /// # Safety
+    /// 
+    /// This function is safe to call.
     pub const fn new() -> Self {
         MemoryMap {
             regions: [MemoryRegion::new(0, 0); 128],
@@ -62,18 +71,15 @@ impl MemoryMap {
             return;
         }
 
-        // Calculate the end address (exclusive) from start and size.
-        let reserved_end = reserved_start + reserved_size;
-
         let mut i = 0;
         while i < self.current_size {
             let region = self.regions[i];
             let region_end = region.end();
 
             // Check for any kind of intersection between the region and reserved area.
-            if region_end >= reserved_start && region.start < reserved_end {
+            if region_end >= reserved_start && region.start < reserved_start + reserved_size {
                 // Case 1: The reserved region completely contains the current region.
-                if reserved_start <= region.start && reserved_end >= region_end + 1 {
+                if reserved_start <= region.start && reserved_start + reserved_size > region_end {
                     // Remove the region by shifting all subsequent regions one slot to the left.
                     for j in i..self.current_size - 1 {
                         self.regions[j] = self.regions[j + 1];
@@ -85,9 +91,9 @@ impl MemoryMap {
                     continue;
                 }
                 // Case 2: The reserved region cuts the beginning of the region.
-                else if reserved_start <= region.start && reserved_end < region_end + 1 {
-                    let new_start = reserved_end;
-                    let new_size = region.size - (reserved_end - region.start);
+                else if reserved_start <= region.start && reserved_start + reserved_size <= region_end {
+                    let new_start = reserved_start + reserved_size;
+                    let new_size = region.size - (new_start - region.start);
 
                     self.regions[i].start = new_start;
                     self.regions[i].size = new_size;
@@ -95,17 +101,17 @@ impl MemoryMap {
                     i += 1;
                 }
                 // Case 3: The reserved region cuts the end of the region.
-                else if reserved_start > region.start && reserved_end >= region_end + 1 {
+                else if reserved_start > region.start && reserved_start + reserved_size > region_end {
                     let new_size = reserved_start - region.start;
                     self.regions[i].size = new_size;
 
                     i += 1;
                 }
                 // Case 4: The reserved region is in the middle of the region.
-                else if reserved_start > region.start && reserved_end < region_end + 1 {
+                else if reserved_start > region.start && reserved_start + reserved_size <= region_end {
                     // Create a new region for the end part.
-                    let end_part_start = reserved_end;
-                    let end_part_size = (region_end + 1) - reserved_end;
+                    let end_part_start = reserved_start + reserved_size;
+                    let end_part_size = (region_end + 1) - end_part_start;
                     let end_region = MemoryRegion::new(end_part_start, end_part_size);
 
                     // Update the current region to be the beginning part.
@@ -113,8 +119,7 @@ impl MemoryMap {
 
                     // Add the new region if there's space.
                     if self.current_size < self.regions.len() {
-                        // Add the new region by inserting it at the end and
-                        // we'll process it later.
+                        // Add the new region by inserting it at the end and we'll process it later.
                         self.regions[self.current_size] = end_region;
                         self.current_size += 1;
                     }
@@ -168,6 +173,36 @@ mod tests {
 
         // Add a region starting at 0x1000 with a size of 0x2000.
         memory_map.add_region(0x1000, 0x2000);
+
+        assert_eq!(memory_map.current_size, 1);
+        assert_eq!(memory_map.regions[0].start, 0x1000);
+        assert_eq!(memory_map.regions[0].size, 0x2000);
+    }
+
+    #[test]
+    fn test_carve_out_reserved_region_adjacent_to_start_nothing_happens() {
+        let mut memory_map = MemoryMap::new();
+
+        // Add a region starting at 0x1000 with a size of 0x2000.
+        memory_map.add_region(0x1000, 0x2000);
+
+        // Carve out a reserved region starting at 0x0 with a size of 0x1000.
+        memory_map.carve_out_region(0x0, 0x1000);
+
+        assert_eq!(memory_map.current_size, 1);
+        assert_eq!(memory_map.regions[0].start, 0x1000);
+        assert_eq!(memory_map.regions[0].size, 0x2000);
+    }
+
+    #[test]
+    fn test_carve_out_reserved_region_adjacent_to_end_nothing_happens() {
+        let mut memory_map = MemoryMap::new();
+
+        // Add a region starting at 0x1000 with a size of 0x2000.
+        memory_map.add_region(0x1000, 0x2000);
+
+        // Carve out a reserved region starting at 0x3000 with a size of 0x1000.
+        memory_map.carve_out_region(0x3000, 0x1000);
 
         assert_eq!(memory_map.current_size, 1);
         assert_eq!(memory_map.regions[0].start, 0x1000);
