@@ -1,0 +1,64 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build Kernel",
+            "type": "shell",
+            "command": "cargo build --target riscv64gc-unknown-none-elf",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "Build Kernel (Release)",
+            "type": "shell",
+            "command": "cargo build --target riscv64gc-unknown-none-elf --release",
+            "group": "build",
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "Run QEMU",
+            "type": "shell",
+            "command": "qemu-system-riscv64 -nographic -machine virt -cpu rv64 -smp 1 -m 256M -bios /opt/opensbi/share/opensbi/lp64/generic/firmware/fw_jump.bin -kernel target/riscv64gc-unknown-none-elf/debug/kernel",
+            "dependsOn": ["Build Kernel"]
+        },
+        {
+            "label": "Run QEMU (Release)",
+            "type": "shell",
+            "command": "qemu-system-riscv64 -nographic -machine virt -cpu rv64 -smp 1 -m 256M -bios /opt/opensbi/share/opensbi/lp64/generic/firmware/fw_jump.bin -kernel target/riscv64gc-unknown-none-elf/release/kernel",
+            "dependsOn": ["Build Kernel (Release)"]
+        },
+        {
+            "label": "Debug with GDB",
+            "type": "shell",
+            "command": "qemu-system-riscv64 -nographic -machine virt -cpu rv64 -smp 1 -m 256M -bios /opt/opensbi/share/opensbi/lp64/generic/firmware/fw_jump.bin -kernel target/riscv64gc-unknown-none-elf/debug/kernel -gdb tcp::1234 -S",
+            "dependsOn": ["Build Kernel"],
+            "isBackground": true,
+            "problemMatcher": {
+                "pattern": {
+                    "regexp": "^$"
+                },
+                "background": {
+                    "activeOnStart": true,
+                    "beginsPattern": "^$",
+                    "endsPattern": "^$"
+                }
+            }
+        },
+        {
+            "label": "Clean",
+            "type": "shell",
+            "command": "cargo clean",
+            "group": "build"
+        },
+        {
+            "label": "Check",
+            "type": "shell",
+            "command": "cargo check --target riscv64gc-unknown-none-elf",
+            "group": "build",
+            "problemMatcher": ["$rustc"]
+        }
+    ]
+}
