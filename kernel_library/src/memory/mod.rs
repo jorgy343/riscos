@@ -1,4 +1,5 @@
 pub mod memory_map;
+pub mod mmu;
 
 /// Represents a physical page number (PPN).
 ///
@@ -11,7 +12,7 @@ pub struct PhysicalPageNumber(pub u64);
 
 impl PhysicalPageNumber {
     /// Get the raw physical page number.
-    /// 
+    ///
     /// # Returns
     /// The raw physical page number. That is, the 56-bit physical address
     /// right-shifted by 12 bits.
@@ -81,7 +82,7 @@ pub struct VirtualPageNumber(pub u64);
 
 impl VirtualPageNumber {
     /// Get the raw virtual page number.
-    /// 
+    ///
     /// # Returns
     /// The raw virtual page number. That is, the 39-bit virtual address
     /// right-shifted by 12 bits.

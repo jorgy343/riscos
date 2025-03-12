@@ -12,9 +12,8 @@ use dtb::{
     adjust_memory_map_from_reserved_regions_in_dtb, populate_memory_map_from_dtb,
     walk_memory_reservation_entries, walk_structure_block,
 };
-use kernel_library::memory::memory_map::MemoryMap;
+use kernel_library::memory::{memory_map::MemoryMap, mmu::PageTable};
 use memory::bump_allocator::BumpAllocator;
-use memory::mmu::PageTable;
 
 static mut ROOT_PAGE_TABLE: PageTable = PageTable::new();
 static mut BUMP_ALLOCATOR: Option<BumpAllocator> = None;
