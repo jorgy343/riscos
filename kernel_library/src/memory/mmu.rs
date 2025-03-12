@@ -201,6 +201,7 @@ pub fn translate_virtual_address(page_table_root: &PageTable, virtual_address: u
 
     physical_address
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -5,5 +5,5 @@
             "text": "Use complete sentences including proper puncutation. Make detailed descriptions using multiple sentences if necessary. If you are fixing a bug, include the issue number. If you are adding a feature, include the feature request number. If you are making a change that is not related to an issue or feature request, include a detailed description of the change."
         }
     ],
-    "editor.formatOnPaste": true
+    "editor.formatOnSave": true
 }
