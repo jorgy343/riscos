@@ -271,7 +271,7 @@ mod tests {
     
     #[test]
     fn test_translate_invalid_root_entry() {
-        let mut root = PageTable::new();
+        let root = PageTable::new();
         // Entry 0x0123 is not set to valid.
         
         let virtual_address = (0x0123u64 << 30) | (0x0056u64 << 21) | (0x0056u64 << 12) | 0x0ABC;
@@ -283,7 +283,7 @@ mod tests {
     #[test]
     fn test_translate_invalid_level1_entry() {
         let mut root = PageTable::new();
-        let mut level1 = Box::new(PageTable::new());
+        let level1 = Box::new(PageTable::new());
         
         // Set up root to point to level1, but don't set up level1 entry.
         let level1_ptr = Box::into_raw(level1);
@@ -309,7 +309,7 @@ mod tests {
     fn test_translate_invalid_level0_entry() {
         let mut root = PageTable::new();
         let mut level1 = Box::new(PageTable::new());
-        let mut level0 = Box::new(PageTable::new());
+        let level0 = Box::new(PageTable::new());
         
         // Set up level1 to point to level0, but don't set up level0 entry.
         let level0_ptr = Box::into_raw(level0);

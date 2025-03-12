@@ -2,7 +2,6 @@
 #![no_main]
 
 mod dtb;
-mod memory;
 mod sbi;
 
 use core::arch::global_asm;
@@ -13,10 +12,8 @@ use dtb::{
     walk_memory_reservation_entries, walk_structure_block,
 };
 use kernel_library::memory::{memory_map::MemoryMap, mmu::PageTable};
-use memory::bump_allocator::BumpAllocator;
 
 static mut ROOT_PAGE_TABLE: PageTable = PageTable::new();
-static mut BUMP_ALLOCATOR: Option<BumpAllocator> = None;
 static mut MEMORY_MAP: MemoryMap = MemoryMap::new();
 
 /// Main kernel entry point. This function is called as early as possible in the boot process.
