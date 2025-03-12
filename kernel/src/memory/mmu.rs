@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use super::PhysicalPageNumber;
+use kernel_library::memory::PhysicalPageNumber;
 
 #[derive(Copy, Clone)]
 #[repr(transparent)]
@@ -30,7 +30,7 @@ impl PageTableEntry {
 
     pub const fn set_ppn(&mut self, ppn: PhysicalPageNumber) {
         // Clear the old PPN and set the new one.
-        self.0 = (self.0 & !0x0000_003F_FFFF_FFF0) | ((ppn.0 & 0x0000_0FFF_FFFF_FFFF) << 10);
+        self.0 = (self.0 & !0x0000_003F_FFFF_FFF0) | ((ppn.raw_ppn() & 0x0000_0FFF_FFFF_FFFF) << 10);
     }
 
     pub const fn is_valid(&self) -> bool {

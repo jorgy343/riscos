@@ -8,12 +8,12 @@ mod sbi;
 use core::arch::global_asm;
 use core::panic::PanicInfo;
 
-use dtb::{walk_memory_reservation_entries, walk_structure_block};
+use dtb::{
+    adjust_memory_map_from_reserved_regions_in_dtb, populate_memory_map_from_dtb,
+    walk_memory_reservation_entries, walk_structure_block,
+};
 use kernel_library::memory::memory_map::MemoryMap;
 use memory::bump_allocator::BumpAllocator;
-use memory::memory_map::{
-    adjust_memory_map_from_reserved_regions_in_dtb, populate_memory_map_from_dtb,
-};
 use memory::mmu::PageTable;
 
 static mut ROOT_PAGE_TABLE: PageTable = PageTable::new();

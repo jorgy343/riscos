@@ -1,4 +1,4 @@
-use super::PhysicalPageNumber;
+use kernel_library::memory::PhysicalPageNumber;
 
 pub struct BumpAllocator {
     start_inclusive: PhysicalPageNumber,
