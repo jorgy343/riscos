@@ -1,5 +1,6 @@
 pub mod memory_map;
 pub mod mmu;
+pub mod physical_bump_allocator;
 
 /// Represents a physical page number (PPN).
 ///
@@ -126,5 +127,42 @@ impl VirtualPageNumber {
     /// virtual address is guaranteed to be aligned to a 4KiB boundary.
     pub const fn to_virtual_address(&self) -> u64 {
         self.0 << 12
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct MemoryRegion {
+    pub start: usize,
+    pub size: usize,
+}
+
+impl MemoryRegion {
+    /// Creates a new memory region with the specified start address and size.
+    ///
+    /// # Parameters
+    ///
+    /// * `start` - The start address of the memory region.
+    /// * `size` - The size of the memory region in bytes.
+    ///
+    /// # Returns
+    ///
+    /// A new memory region instance.
+    pub const fn new(start: usize, size: usize) -> Self {
+        MemoryRegion { start, size }
+    }
+
+    /// Returns the inclusive end address of the memory region.
+    ///
+    /// # Returns
+    ///
+    /// The inclusive end address of the memory region. If the size is zero,
+    /// returns zero.
+    pub const fn end(&self) -> usize {
+        if self.size == 0 {
+            return 0;
+        }
+
+        // Subtract 1 from start + size to get the inclusive end address.
+        self.start + self.size - 1
     }
 }

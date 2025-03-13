@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+use super::MemoryRegion;
+
 #[derive(Debug, Clone, Copy)]
 pub struct MemoryMap {
     regions: [MemoryRegion; 128],
@@ -8,13 +10,13 @@ pub struct MemoryMap {
 
 impl MemoryMap {
     /// Creates a new memory map with no regions.
-    /// 
+    ///
     /// # Returns
-    /// 
+    ///
     /// A new memory map instance.
-    /// 
+    ///
     /// # Safety
-    /// 
+    ///
     /// This function is safe to call.
     pub const fn new() -> Self {
         MemoryMap {
@@ -91,7 +93,9 @@ impl MemoryMap {
                     continue;
                 }
                 // Case 2: The reserved region cuts the beginning of the region.
-                else if reserved_start <= region.start && reserved_start + reserved_size <= region_end {
+                else if reserved_start <= region.start
+                    && reserved_start + reserved_size <= region_end
+                {
                     let new_start = reserved_start + reserved_size;
                     let new_size = region.size - (new_start - region.start);
 
@@ -101,14 +105,18 @@ impl MemoryMap {
                     i += 1;
                 }
                 // Case 3: The reserved region cuts the end of the region.
-                else if reserved_start > region.start && reserved_start + reserved_size > region_end {
+                else if reserved_start > region.start
+                    && reserved_start + reserved_size > region_end
+                {
                     let new_size = reserved_start - region.start;
                     self.regions[i].size = new_size;
 
                     i += 1;
                 }
                 // Case 4: The reserved region is in the middle of the region.
-                else if reserved_start > region.start && reserved_start + reserved_size <= region_end {
+                else if reserved_start > region.start
+                    && reserved_start + reserved_size <= region_end
+                {
                     // Create a new region for the end part.
                     let end_part_start = reserved_start + reserved_size;
                     let end_part_size = (region_end + 1) - end_part_start;
@@ -137,29 +145,6 @@ impl MemoryMap {
         for i in 0..self.current_size {
             callback(&self.regions[i]);
         }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct MemoryRegion {
-    pub start: usize,
-    pub size: usize,
-}
-
-impl MemoryRegion {
-    pub const fn new(start: usize, size: usize) -> Self {
-        MemoryRegion { start, size }
-    }
-
-    // Returns the inclusive end address of the memory region.
-    // If the size is zero, returns zero.
-    pub const fn end(&self) -> usize {
-        if self.size == 0 {
-            return 0;
-        }
-
-        // Subtract 1 from start + size to get the inclusive end address.
-        self.start + self.size - 1
     }
 }
 
