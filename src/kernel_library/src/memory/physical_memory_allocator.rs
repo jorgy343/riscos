@@ -15,9 +15,9 @@ pub trait PhysicalMemoryAllocator {
     ///
     /// # Returns
     ///
-    /// * `Some(PhysicalPageNumber)` - If a page was successfully allocated.
+    /// * `Some(*mut u8)` - If a page was successfully allocated, returns a pointer to the page.
     /// * `None` - If there is no more memory available to allocate.
-    fn allocate_page(&mut self) -> Option<PhysicalPageNumber>;
+    fn allocate_page(&mut self) -> Option<*mut u8>;
 
     /// Returns the total amount of memory available for allocation, in bytes.
     ///
@@ -98,9 +98,9 @@ impl PhysicalMemoryAllocator for PhysicalBumpAllocator {
     ///
     /// # Returns
     ///
-    /// * `Some(PhysicalPageNumber)` - If a page was successfully allocated.
+    /// * `Some(*mut u8)` - If a page was successfully allocated, returns a pointer to the page.
     /// * `None` - If there is no more memory available to allocate.
-    fn allocate_page(&mut self) -> Option<PhysicalPageNumber> {
+    fn allocate_page(&mut self) -> Option<*mut u8> {
         // Check if we have any regions to allocate from.
         if self.region_count == 0 {
             return None;
@@ -144,10 +144,8 @@ impl PhysicalMemoryAllocator for PhysicalBumpAllocator {
                 }
             }
 
-            // Convert the address to a PPN and return.
-            return Some(PhysicalPageNumber::from_physical_address(
-                allocation_address as u64,
-            ));
+            // Return the raw pointer to the allocated memory.
+            return Some(allocation_address as *mut u8);
         }
 
         // No more memory available.
@@ -214,9 +212,9 @@ mod tests {
         let regions = [MemoryRegion::new(0x1000, 0x4000)];
 
         let mut allocator = PhysicalBumpAllocator::new(&regions);
-        let ppn = allocator.allocate_page().unwrap();
+        let ptr = allocator.allocate_page().unwrap();
 
-        assert_eq!(ppn.to_physical_address(), 0x1000);
+        assert_eq!(ptr as usize, 0x1000);
         assert_eq!(allocator.next_allocation_address, 0x2000);
         assert_eq!(allocator.allocated_memory_size(), 0x1000);
     }
@@ -228,13 +226,13 @@ mod tests {
         let mut allocator = PhysicalBumpAllocator::new(&regions);
 
         // Allocate three 4KiB pages.
-        let ppn1 = allocator.allocate_page().unwrap();
-        let ppn2 = allocator.allocate_page().unwrap();
-        let ppn3 = allocator.allocate_page().unwrap();
+        let ptr1 = allocator.allocate_page().unwrap();
+        let ptr2 = allocator.allocate_page().unwrap();
+        let ptr3 = allocator.allocate_page().unwrap();
 
-        assert_eq!(ppn1.to_physical_address(), 0x1000);
-        assert_eq!(ppn2.to_physical_address(), 0x2000);
-        assert_eq!(ppn3.to_physical_address(), 0x3000);
+        assert_eq!(ptr1 as usize, 0x1000);
+        assert_eq!(ptr2 as usize, 0x2000);
+        assert_eq!(ptr3 as usize, 0x3000);
 
         // The region should now be exhausted.
         assert_eq!(allocator.current_region_index, 1);
@@ -250,16 +248,16 @@ mod tests {
         let mut allocator = PhysicalBumpAllocator::new(&regions);
 
         // Allocate from the first region.
-        let ppn1 = allocator.allocate_page().unwrap();
-        assert_eq!(ppn1.to_physical_address(), 0x1000);
+        let ptr1 = allocator.allocate_page().unwrap();
+        assert_eq!(ptr1 as usize, 0x1000);
 
         // The first region is now exhausted, next allocation should come from
         // the second region.
-        let ppn2 = allocator.allocate_page().unwrap();
-        assert_eq!(ppn2.to_physical_address(), 0x10000);
+        let ptr2 = allocator.allocate_page().unwrap();
+        assert_eq!(ptr2 as usize, 0x10000);
 
-        let ppn3 = allocator.allocate_page().unwrap();
-        assert_eq!(ppn3.to_physical_address(), 0x11000);
+        let ptr3 = allocator.allocate_page().unwrap();
+        assert_eq!(ptr3 as usize, 0x11000);
 
         // The second region should now be exhausted.
         assert_eq!(allocator.current_region_index, 2);
@@ -274,8 +272,8 @@ mod tests {
         let mut allocator = PhysicalBumpAllocator::new(&regions);
 
         // Allocate the only page.
-        let ppn = allocator.allocate_page().unwrap();
-        assert_eq!(ppn.to_physical_address(), 0x1000);
+        let ptr = allocator.allocate_page().unwrap();
+        assert_eq!(ptr as usize, 0x1000);
 
         // Try to allocate again, should be None.
         assert!(allocator.allocate_page().is_none());
