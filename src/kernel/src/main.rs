@@ -89,22 +89,20 @@ pub extern "C" fn kernel_main(hart_id: usize, dtb_address: usize) -> ! {
 
     debug_println!();
 
+    unsafe extern "C" {
+        static _kernel_begin: usize;
+        static _kernel_end_exclusive: usize;
+    }
+
+    let kernel_start = unsafe { &_kernel_begin as *const _ as usize };
+    let kernel_end_exclusive = unsafe { &_kernel_end_exclusive as *const _ as usize };
+
     // Populate the memory map using information from the device tree blob.
     unsafe {
         let memory_map = &mut *&raw mut MEMORY_MAP;
 
         populate_memory_map_from_dtb(memory_map, dtb_header);
         adjust_memory_map_from_reserved_regions_in_dtb(memory_map, dtb_header);
-
-        // Remove the kernel's own memory region from available regions to
-        // prevent the kernel from being overwritten.
-        unsafe extern "C" {
-            static _kernel_begin: usize;
-            static _kernel_end_exclusive: usize;
-        }
-
-        let kernel_start = &_kernel_begin as *const _ as usize;
-        let kernel_end_exclusive = &_kernel_end_exclusive as *const _ as usize;
 
         let kernel_size = kernel_end_exclusive - kernel_start;
         debug_println!(
@@ -128,6 +126,8 @@ pub extern "C" fn kernel_main(hart_id: usize, dtb_address: usize) -> ! {
             );
         });
     }
+
+    // Identity map the boot kernel's memory.
 
     loop {}
 }

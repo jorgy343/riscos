@@ -7,9 +7,9 @@ pub mod physical_memory_allocator;
 /// This is the top 44 bits of a 56-bit physical address. The structure stores
 /// the PPN with bit 0 representing the start of the PPN (the address
 /// right-shifted by 12 bits), as it does not include the 12-bit page offset.
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(transparent)]
-pub struct PhysicalPageNumber(pub u64);
+pub struct PhysicalPageNumber(pub usize);
 
 impl PhysicalPageNumber {
     /// Get the raw physical page number.
@@ -18,7 +18,7 @@ impl PhysicalPageNumber {
     ///
     /// The raw physical page number. That is, the 56-bit physical address
     /// right-shifted by 12 bits.
-    pub const fn raw_ppn(&self) -> u64 {
+    pub const fn raw_ppn(&self) -> usize {
         self.0
     }
 
@@ -44,7 +44,7 @@ impl PhysicalPageNumber {
     ///
     /// assert_eq!(ppn.0, 0x0008_0200);
     /// ```
-    pub const fn from_physical_address(physical_address: u64) -> Self {
+    pub const fn from_physical_address(physical_address: usize) -> Self {
         Self(physical_address >> 12)
     }
 
@@ -59,7 +59,7 @@ impl PhysicalPageNumber {
     ///
     /// The `PhysicalPageNumber` representing the top 44 bits of the physical
     /// address.
-    pub const fn from_raw_physical_page_number(ppn: u64) -> Self {
+    pub const fn from_raw_physical_page_number(ppn: usize) -> Self {
         Self(ppn)
     }
 
@@ -71,7 +71,7 @@ impl PhysicalPageNumber {
     ///
     /// The physical address with the PPN shifted left by 12 bits. The resultant
     /// physical address is guaranteed to be aligned to a 4KiB boundary.
-    pub const fn to_physical_address(&self) -> u64 {
+    pub const fn to_physical_address(&self) -> usize {
         self.0 << 12
     }
 }
@@ -84,9 +84,9 @@ impl PhysicalPageNumber {
 ///
 /// This virtual page number object only supports sv39 mode where virtual
 /// addresses are a total of 39 bits (12-bit page offset + 27-bit VPN).
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(transparent)]
-pub struct VirtualPageNumber(pub u64);
+pub struct VirtualPageNumber(pub usize);
 
 impl VirtualPageNumber {
     /// Get the raw virtual page number.
@@ -95,7 +95,7 @@ impl VirtualPageNumber {
     ///
     /// The raw virtual page number. That is, the 39-bit virtual address
     /// right-shifted by 12 bits.
-    pub const fn raw_vpn(&self) -> u64 {
+    pub const fn raw_vpn(&self) -> usize {
         self.0
     }
 
@@ -111,7 +111,7 @@ impl VirtualPageNumber {
     ///
     /// The `VirtualPageNumber` representing the top 27 bits of the virtual
     /// address.
-    pub const fn from_virtual_address(virtual_address: u64) -> Self {
+    pub const fn from_virtual_address(virtual_address: usize) -> Self {
         Self(virtual_address >> 12)
     }
 
@@ -126,7 +126,7 @@ impl VirtualPageNumber {
     ///
     /// The `VirtualPageNumber` representing the top 27 bits of the virtual
     /// address.
-    pub const fn from_raw_virtual_page_number(vpn: u64) -> Self {
+    pub const fn from_raw_virtual_page_number(vpn: usize) -> Self {
         Self(vpn)
     }
 
@@ -138,7 +138,7 @@ impl VirtualPageNumber {
     ///
     /// The virtual address with the VPN shifted left by 12 bits. The resultant
     /// virtual address is guaranteed to be aligned to a 4KiB boundary.
-    pub const fn to_virtual_address(&self) -> u64 {
+    pub const fn to_virtual_address(&self) -> usize {
         self.0 << 12
     }
 
