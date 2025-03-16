@@ -2,7 +2,7 @@
     "rust-analyzer.checkOnSave.allTargets": false,
     "github.copilot.chat.commitMessageGeneration.instructions": [
         {
-            "text": "Use succinct complete sentences including proper puncutation. Split out paragraphs with line breaks. Give a quick overview of all of the changes in one paragraph and then give a detailed listing of all changes.",
+            "text": "Use complete sentences including proper puncutation. Split out paragraphs with line breaks. Give a detailed summary of each individual change.",
         }
     ],
     "editor.formatOnSave": true
