@@ -15,7 +15,8 @@ pub trait PhysicalMemoryAllocator {
     ///
     /// # Returns
     ///
-    /// * `Some(*mut u8)` - If a page was successfully allocated, returns a pointer to the page.
+    /// * `Some(*mut u8)` - If a page was successfully allocated, returns a
+    ///   pointer to the page.
     /// * `None` - If there is no more memory available to allocate.
     fn allocate_page(&mut self) -> Option<*mut u8>;
 
@@ -65,7 +66,7 @@ impl PhysicalBumpAllocator {
     /// # Returns
     ///
     /// A new instance of PhysicalBumpAllocator.
-    pub fn new(regions: &[MemoryRegion]) -> Self {
+    pub fn new(regions: &[MemoryRegion], region_count: usize) -> Self {
         let mut allocator = PhysicalBumpAllocator {
             memory_regions: [MemoryRegion::new(0, 0); 128],
             region_count: 0,
@@ -74,13 +75,15 @@ impl PhysicalBumpAllocator {
         };
 
         // Copy regions into our internal array.
-        let copy_count = core::cmp::min(regions.len(), allocator.memory_regions.len());
+        let copy_count = core::cmp::min(region_count, allocator.memory_regions.len());
         for i in 0..copy_count {
             allocator.memory_regions[i] = regions[i];
         }
+
         allocator.region_count = copy_count;
 
-        // Initialize the next allocation address if we have regions.
+        // Initialize the next allocation address if we have regions which is
+        // the start of the first region.
         if copy_count > 0 {
             allocator.next_allocation_address = allocator.memory_regions[0].start;
         }
@@ -98,7 +101,8 @@ impl PhysicalMemoryAllocator for PhysicalBumpAllocator {
     ///
     /// # Returns
     ///
-    /// * `Some(*mut u8)` - If a page was successfully allocated, returns a pointer to the page.
+    /// * `Some(*mut u8)` - If a page was successfully allocated, returns a
+    ///   pointer to the page.
     /// * `None` - If there is no more memory available to allocate.
     fn allocate_page(&mut self) -> Option<*mut u8> {
         // Check if we have any regions to allocate from.
@@ -162,6 +166,7 @@ impl PhysicalMemoryAllocator for PhysicalBumpAllocator {
         for i in 0..self.region_count {
             total_size += self.memory_regions[i].size;
         }
+
         total_size
     }
 
@@ -199,7 +204,7 @@ mod tests {
             MemoryRegion::new(0x10000, 0x8000),
         ];
 
-        let allocator = PhysicalBumpAllocator::new(&regions);
+        let allocator = PhysicalBumpAllocator::new(&regions, regions.len());
 
         assert_eq!(allocator.region_count, 2);
         assert_eq!(allocator.current_region_index, 0);
@@ -211,7 +216,7 @@ mod tests {
     fn test_allocate_single_page() {
         let regions = [MemoryRegion::new(0x1000, 0x4000)];
 
-        let mut allocator = PhysicalBumpAllocator::new(&regions);
+        let mut allocator = PhysicalBumpAllocator::new(&regions, regions.len());
         let ptr = allocator.allocate_page().unwrap();
 
         assert_eq!(ptr as usize, 0x1000);
@@ -223,7 +228,7 @@ mod tests {
     fn test_allocate_multiple_pages() {
         let regions = [MemoryRegion::new(0x1000, 0x3000)];
 
-        let mut allocator = PhysicalBumpAllocator::new(&regions);
+        let mut allocator = PhysicalBumpAllocator::new(&regions, regions.len());
 
         // Allocate three 4KiB pages.
         let ptr1 = allocator.allocate_page().unwrap();
@@ -245,7 +250,7 @@ mod tests {
             MemoryRegion::new(0x10000, 0x2000), // Two pages.
         ];
 
-        let mut allocator = PhysicalBumpAllocator::new(&regions);
+        let mut allocator = PhysicalBumpAllocator::new(&regions, regions.len());
 
         // Allocate from the first region.
         let ptr1 = allocator.allocate_page().unwrap();
@@ -269,7 +274,7 @@ mod tests {
             MemoryRegion::new(0x1000, 0x1000), // One page.
         ];
 
-        let mut allocator = PhysicalBumpAllocator::new(&regions);
+        let mut allocator = PhysicalBumpAllocator::new(&regions, regions.len());
 
         // Allocate the only page.
         let ptr = allocator.allocate_page().unwrap();

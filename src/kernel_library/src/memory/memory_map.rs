@@ -25,6 +25,14 @@ impl MemoryMap {
         }
     }
 
+    pub fn get_regions(&self) -> &[MemoryRegion] {
+        &self.regions
+    }
+
+    pub fn get_region_count(&self) -> usize {
+        self.current_size
+    }
+
     /// Adds a new memory region to the memory map.
     ///
     /// # Parameters
