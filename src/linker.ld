@@ -31,7 +31,7 @@ SECTIONS
 
     _stack_begin = .;
     . = ALIGN(4K);
-    . = . + 4K;
+    . = . + 8K;
     _stack_end = .;
 
     _kernel_end_exclusive = .;

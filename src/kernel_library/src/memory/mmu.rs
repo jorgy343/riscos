@@ -243,28 +243,32 @@ fn get_recursive_vpn_for_page_table_at_level(
 /// Allocates a physical page and maps it to the specified virtual page number.
 ///
 /// This function walks the page table hierarchy starting from the root page
-/// table, creating intermediate page tables as needed. It then allocates a
-/// physical page and creates a leaf page table entry mapping the virtual page
-/// to the physical page.
-///
-/// If the page is already allocated, the function will return the physical page
-/// number without allocating a new page.
+/// table, creating intermediate page tables as needed. It maps the requested
+/// virtual page number to a physical page, either by using the provided
+/// physical page number or by allocating a new page when needed. The resulting
+/// leaf entry is configured with valid, readable, writable, and executable
+/// permissions, while the accessed and dirty flags are initially cleared. If
+/// the page is already allocated, the function returns the existing physical
+/// page mapping.
 ///
 /// # Arguments
 ///
 /// * `page_table_root` - A mutable reference to the root page table.
 /// * `vpn` - The virtual page number to allocate and map.
+/// * `ppn` - An optional physical page number to use for mapping. If `None`, a
+///   new physical page is allocated.
 /// * `physical_memory_allocator` - A mutable reference to a physical memory
 ///   allocator.
 ///
 /// # Returns
 ///
-/// * `Some(PhysicalPageNumber)` - The physical page number that was allocated
-///   and mapped or the physical page number that has already been mapped.
-/// * `None` - If the allocation failed due to lack of physical memory.
+/// * `Some(PhysicalPageNumber)` - The physical page number that was mapped
+///   (either newly allocated or previously mapped).
+/// * `None` - If the allocation failed due to a lack of physical memory.
 pub fn allocate_vpn(
     page_table_root: &mut PageTable,
     vpn: VirtualPageNumber,
+    ppn: Option<PhysicalPageNumber>,
     physical_memory_allocator: &mut impl PhysicalMemoryAllocator,
 ) -> Option<PhysicalPageNumber> {
     // Extract the 9-bit indices for each level of the page table.
@@ -333,9 +337,15 @@ pub fn allocate_vpn(
         return Some(page_table_entry_0.get_ppn());
     }
 
-    // Allocate a new physical page for the actual memory.
-    let physical_page_ptr = physical_memory_allocator.allocate_page()?;
-    let physical_page_ppn = PhysicalPageNumber::from_physical_address(physical_page_ptr as usize);
+    // Determine the physical page to map.
+    let physical_page_ppn = if let Some(provided_ppn) = ppn {
+        // Use the provided physical page number.
+        provided_ppn
+    } else {
+        // Allocate a new physical page for the actual memory.
+        let physical_page_ptr = physical_memory_allocator.allocate_page()?;
+        PhysicalPageNumber::from_physical_address(physical_page_ptr as usize)
+    };
 
     // Set up the level 0 entry as a leaf entry.
     page_table_entry_0.set_valid(true);
@@ -349,7 +359,7 @@ pub fn allocate_vpn(
     // Write the updated entry back to the level 0 page table.
     page_table_level_0.set_entry(vpn0, page_table_entry_0);
 
-    // Return the physical page number that was allocated.
+    // Return the physical page number that was allocated or provided.
     Some(physical_page_ppn)
 }
 

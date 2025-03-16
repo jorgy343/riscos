@@ -4,21 +4,22 @@
 mod dtb;
 mod sbi;
 
+use core::arch::global_asm;
 use core::panic::PanicInfo;
-use core::sync::atomic::Ordering;
-use core::{arch::global_asm, sync::atomic::fence};
 use dtb::{
     adjust_memory_map_from_reserved_regions_in_dtb, populate_memory_map_from_dtb,
     walk_memory_reservation_entries, walk_structure_block,
 };
 use kernel_library::memory::{
+    PhysicalPageNumber, VirtualPageNumber,
     memory_map::MemoryMap,
-    mmu::PageTable,
+    mmu::{self, PageTable, PageTableEntry},
     physical_memory_allocator::{PhysicalBumpAllocator, PhysicalMemoryAllocator},
 };
 
-static mut ROOT_PAGE_TABLE: PageTable = PageTable::new();
 static mut MEMORY_MAP: MemoryMap = MemoryMap::new();
+static mut PHYSICAL_MEMORY_ALLOCATOR: PhysicalBumpAllocator = PhysicalBumpAllocator::new();
+static mut ROOT_PAGE_TABLE: PageTable = PageTable::new();
 
 /// Main kernel entry point. This function is called as early as possible in the
 /// boot process.
@@ -38,7 +39,9 @@ pub extern "C" fn kernel_main(hart_id: usize, dtb_address: usize) -> ! {
     let memory_map = create_memory_map(dtb_header);
     print_memory_regions(memory_map);
 
-    create_physical_memory_allocator(memory_map);
+    let physical_memory_allocator = create_physical_memory_allocator(memory_map);
+
+    setup_mmu(physical_memory_allocator);
 
     loop {}
 }
@@ -154,20 +157,127 @@ fn print_memory_regions(memory_map: &mut MemoryMap) {
             region.size
         );
     });
-}
-
-fn create_physical_memory_allocator(memory_map: &mut MemoryMap) {
-    // Create a physical memory allocator.
-    let mut physical_memory_allocator =
-        PhysicalBumpAllocator::new(memory_map.get_regions(), memory_map.get_region_count());
-
-    let allocated_memory = physical_memory_allocator.total_memory_size();
 
     debug_println!();
+}
+
+fn create_physical_memory_allocator(memory_map: &mut MemoryMap) -> &mut PhysicalBumpAllocator {
+    // Create a physical memory allocator.
+    let physical_memory_allocator = unsafe { &mut *&raw mut PHYSICAL_MEMORY_ALLOCATOR };
+    physical_memory_allocator.reset(memory_map.get_regions(), memory_map.get_region_count());
+
     debug_println!(
-        "Created a physical memory allocator with {:#x} bytes of memory.",
-        allocated_memory
+        "Created a physical memory allocator with {:#x} free memory.",
+        physical_memory_allocator.total_memory_size()
     );
+
+    debug_println!();
+
+    physical_memory_allocator
+}
+
+fn setup_mmu(physical_memory_allocator: &mut impl PhysicalMemoryAllocator) {
+    unsafe extern "C" {
+        static _kernel_begin: usize;
+        static _kernel_end_exclusive: usize;
+    }
+
+    debug_println!("Setting up MMU with sv39 paging...");
+
+    // Get a mutable reference to the root page table.
+    let root_page_table = unsafe { &mut *&raw mut ROOT_PAGE_TABLE };
+
+    // Clear the root page table to ensure all entries start as invalid.
+    root_page_table.clear();
+
+    // Get physical addresses of kernel start and end.
+    let kernel_start_physical_address = unsafe { &_kernel_begin as *const _ as usize };
+    let kernel_end_exclusive_physical_address =
+        unsafe { &_kernel_end_exclusive as *const _ as usize };
+    let kernel_size_bytes = kernel_end_exclusive_physical_address - kernel_start_physical_address;
+
+    // Create the recursive mapping for the root page table at index 511. This
+    // allows the page tables to be accessed as virtual memory after paging is
+    // enabled.
+    let root_page_table_physical_address = &raw const root_page_table as usize;
+    let root_physical_page_number =
+        PhysicalPageNumber::from_physical_address(root_page_table_physical_address);
+
+    let mut recursive_entry = PageTableEntry::new();
+    recursive_entry.set_valid(true);
+    recursive_entry.set_readable(true);
+    recursive_entry.set_writable(true);
+    recursive_entry.set_ppn(root_physical_page_number);
+
+    // Install the recursive mapping at index 511 (last entry).
+    root_page_table.set_entry(511, recursive_entry);
+
+    debug_println!(
+        "Created recursive mapping at index 511 with PPN: {:#x}",
+        root_physical_page_number.raw_ppn()
+    );
+
+    // Identity map the kernel memory region. This ensures the kernel keeps
+    // working when we activate the MMU.
+    let mut bytes_mapped = 0;
+    let mut page_count = 0;
+
+    while bytes_mapped < kernel_size_bytes {
+        let current_physical_address = kernel_start_physical_address + bytes_mapped;
+
+        // For identity mapping, virtual address equals physical address.
+        let virtual_page_number = VirtualPageNumber::from_virtual_address(current_physical_address);
+        let physical_page_number =
+            PhysicalPageNumber::from_physical_address(current_physical_address);
+
+        // Map a single page using the allocate_vpn function from the mmu
+        // module.
+        if mmu::allocate_vpn(
+            root_page_table,
+            virtual_page_number,
+            Some(physical_page_number),
+            physical_memory_allocator,
+        )
+        .is_none()
+        {
+            panic!("Failed to set up memory mapping for kernel.");
+        }
+
+        // Move to the next 4 KiB page.
+        bytes_mapped += 4096;
+        page_count += 1;
+    }
+
+    debug_println!(
+        "Identity mapped kernel memory: {} pages ({} bytes).",
+        page_count,
+        page_count * 4096
+    );
+
+    // TODO: Map additional required regions (e.g., MMIO regions, device
+    // memory).
+
+    // Set up the satp register to enable paging. Format for RV64 with sv39:
+    // - MODE (bits 63:60) = 8 for sv39
+    // - ASID (bits 59:44) = 0 for now (Address Space ID)
+    // - PPN (bits 43:0) = physical page number of the root page table
+    let satp_value = (8usize << 60) | root_physical_page_number.raw_ppn();
+
+    debug_println!("Setting satp register to {:#x}.", satp_value);
+
+    // Activate the MMU by writing to the satp register.
+    unsafe {
+        // Flush the TLB before activating the MMU.
+        core::arch::asm!("sfence.vma", options(nomem, nostack));
+
+        // Write to satp to enable paging with sv39 mode.
+        core::arch::asm!("csrw satp, {}", in(reg) satp_value);
+
+        // Flush the TLB again after enabling paging.
+        core::arch::asm!("sfence.vma", options(nomem, nostack));
+    }
+
+    debug_println!("MMU activated with sv39 paging.");
 }
 
 #[panic_handler]

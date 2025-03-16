@@ -3,7 +3,7 @@
 //! This module provides a simple bump allocator for physical memory pages. It
 //! does not support deallocation of memory pages.
 
-use crate::memory::{MemoryRegion, PhysicalPageNumber};
+use crate::memory::MemoryRegion;
 
 /// Trait defining the interface for physical memory allocators.
 ///
@@ -57,7 +57,17 @@ pub struct PhysicalBumpAllocator {
 }
 
 impl PhysicalBumpAllocator {
-    /// Creates a new physical bump allocator with the provided memory regions.
+    pub const fn new() -> PhysicalBumpAllocator {
+        PhysicalBumpAllocator {
+            memory_regions: [MemoryRegion::new(0, 0); 128],
+            region_count: 0,
+            current_region_index: 0,
+            next_allocation_address: 0,
+        }
+    }
+
+    /// Resets the physical bump allocator with the provided memory regions. All
+    /// current state is lost.
     ///
     /// # Parameters
     ///
@@ -66,29 +76,20 @@ impl PhysicalBumpAllocator {
     /// # Returns
     ///
     /// A new instance of PhysicalBumpAllocator.
-    pub fn new(regions: &[MemoryRegion], region_count: usize) -> Self {
-        let mut allocator = PhysicalBumpAllocator {
-            memory_regions: [MemoryRegion::new(0, 0); 128],
-            region_count: 0,
-            current_region_index: 0,
-            next_allocation_address: 0,
-        };
-
+    pub fn reset(&mut self, regions: &[MemoryRegion], region_count: usize) {
         // Copy regions into our internal array.
-        let copy_count = core::cmp::min(region_count, allocator.memory_regions.len());
+        let copy_count = core::cmp::min(region_count, self.memory_regions.len());
         for i in 0..copy_count {
-            allocator.memory_regions[i] = regions[i];
+            self.memory_regions[i] = regions[i];
         }
 
-        allocator.region_count = copy_count;
+        self.region_count = copy_count;
 
         // Initialize the next allocation address if we have regions which is
         // the start of the first region.
         if copy_count > 0 {
-            allocator.next_allocation_address = allocator.memory_regions[0].start;
+            self.next_allocation_address = self.memory_regions[0].start;
         }
-
-        allocator
     }
 }
 
@@ -125,6 +126,7 @@ impl PhysicalMemoryAllocator for PhysicalBumpAllocator {
                 if self.current_region_index < self.region_count {
                     self.next_allocation_address =
                         self.memory_regions[self.current_region_index].start;
+
                     continue;
                 } else {
                     // No more regions available.
@@ -142,6 +144,7 @@ impl PhysicalMemoryAllocator for PhysicalBumpAllocator {
             // move to the next region.
             if self.next_allocation_address + 4096 > region_end_address {
                 self.current_region_index += 1;
+
                 if self.current_region_index < self.region_count {
                     self.next_allocation_address =
                         self.memory_regions[self.current_region_index].start;
@@ -204,7 +207,8 @@ mod tests {
             MemoryRegion::new(0x10000, 0x8000),
         ];
 
-        let allocator = PhysicalBumpAllocator::new(&regions, regions.len());
+        let mut allocator = PhysicalBumpAllocator::new();
+        allocator.reset(&regions, regions.len());
 
         assert_eq!(allocator.region_count, 2);
         assert_eq!(allocator.current_region_index, 0);
@@ -216,9 +220,10 @@ mod tests {
     fn test_allocate_single_page() {
         let regions = [MemoryRegion::new(0x1000, 0x4000)];
 
-        let mut allocator = PhysicalBumpAllocator::new(&regions, regions.len());
-        let ptr = allocator.allocate_page().unwrap();
+        let mut allocator = PhysicalBumpAllocator::new();
+        allocator.reset(&regions, regions.len());
 
+        let ptr = allocator.allocate_page().unwrap();
         assert_eq!(ptr as usize, 0x1000);
         assert_eq!(allocator.next_allocation_address, 0x2000);
         assert_eq!(allocator.allocated_memory_size(), 0x1000);
@@ -228,9 +233,9 @@ mod tests {
     fn test_allocate_multiple_pages() {
         let regions = [MemoryRegion::new(0x1000, 0x3000)];
 
-        let mut allocator = PhysicalBumpAllocator::new(&regions, regions.len());
+        let mut allocator = PhysicalBumpAllocator::new();
+        allocator.reset(&regions, regions.len());
 
-        // Allocate three 4KiB pages.
         let ptr1 = allocator.allocate_page().unwrap();
         let ptr2 = allocator.allocate_page().unwrap();
         let ptr3 = allocator.allocate_page().unwrap();
@@ -250,7 +255,8 @@ mod tests {
             MemoryRegion::new(0x10000, 0x2000), // Two pages.
         ];
 
-        let mut allocator = PhysicalBumpAllocator::new(&regions, regions.len());
+        let mut allocator = PhysicalBumpAllocator::new();
+        allocator.reset(&regions, regions.len());
 
         // Allocate from the first region.
         let ptr1 = allocator.allocate_page().unwrap();
@@ -274,7 +280,8 @@ mod tests {
             MemoryRegion::new(0x1000, 0x1000), // One page.
         ];
 
-        let mut allocator = PhysicalBumpAllocator::new(&regions, regions.len());
+        let mut allocator = PhysicalBumpAllocator::new();
+        allocator.reset(&regions, regions.len());
 
         // Allocate the only page.
         let ptr = allocator.allocate_page().unwrap();
