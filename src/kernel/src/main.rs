@@ -11,7 +11,7 @@ use dtb::{
     walk_memory_reservation_entries, walk_structure_block,
 };
 use kernel_library::memory::{
-    PhysicalPageNumber, VirtualPageNumber,
+    PhysicalPageNumber,
     memory_map::MemoryMap,
     mmu::{self, PageTable, PageTableEntry, PageTableEntryFlags},
     physical_memory_allocator::{PhysicalBumpAllocator, PhysicalMemoryAllocator},
@@ -188,9 +188,19 @@ fn setup_mmu(physical_memory_allocator: &mut impl PhysicalMemoryAllocator) {
     // Create the recursive mapping for the root page table at index 511. This
     // allows the page tables to be accessed as virtual memory after paging is
     // enabled.
-    let root_page_table_physical_address = &raw const root_page_table as usize;
+    let root_page_table_physical_address = &raw const ROOT_PAGE_TABLE as *const _ as usize;
     let root_physical_page_number =
         PhysicalPageNumber::from_physical_address(root_page_table_physical_address);
+
+    debug_println!(
+        "Root page table physical address is {:#x}.",
+        root_page_table_physical_address
+    );
+
+    debug_println!(
+        "Root physical page number is {:#x}.",
+        root_physical_page_number.raw_ppn()
+    );
 
     let mut recursive_entry = PageTableEntry::new();
     recursive_entry.set_valid(true);
@@ -205,8 +215,6 @@ fn setup_mmu(physical_memory_allocator: &mut impl PhysicalMemoryAllocator) {
     );
 
     // Identity map the .text, .data, .bss, and .rodata sections.
-    const PAGE_SIZE: usize = 4096;
-
     unsafe extern "C" {
         static _text_begin: usize;
         static _text_end: usize;
@@ -310,7 +318,7 @@ fn setup_mmu(physical_memory_allocator: &mut impl PhysicalMemoryAllocator) {
     );
 
     debug_println!();
-    //print_page_table_entries(root_page_table, 0, 2, 0);
+    print_page_table_entries(root_page_table, 0, 2, 0);
     debug_println!();
 
     // Set up the satp register to enable paging. Format for RV64 with sv39:
