@@ -32,6 +32,10 @@ impl PageTable {
         &self.entries[index]
     }
 
+    pub const fn get_entries(&self) -> &[PageTableEntry] {
+        &self.entries
+    }
+
     pub const fn get_entry_mut(&mut self, index: usize) -> &mut PageTableEntry {
         &mut self.entries[index]
     }
@@ -61,18 +65,6 @@ impl PageTableEntry {
 
     pub const fn clear(&mut self) {
         self.0 = 0;
-    }
-
-    pub const fn get_ppn(&self) -> PhysicalPageNumber {
-        PhysicalPageNumber::from_raw_physical_page_number(
-            ((self.0 >> 10) & 0x0000_0FFF_FFFF_FFFF) as usize,
-        )
-    }
-
-    pub const fn set_ppn(&mut self, ppn: PhysicalPageNumber) {
-        // Clear the old PPN and set the new one.
-        self.0 = (self.0 & !0x0000_003F_FFFF_FFF0)
-            | ((ppn.raw_ppn() as u64 & 0x0000_0FFF_FFFF_FFFF) << 10);
     }
 
     pub const fn is_valid(&self) -> bool {
@@ -171,10 +163,81 @@ impl PageTableEntry {
         }
     }
 
+    pub const fn set_flags(&mut self, flags: &PageTableEntryFlags) {
+        self.set_readable(flags.readable);
+        self.set_writable(flags.writable);
+        self.set_executable(flags.executable);
+        self.set_user(flags.user);
+        self.set_global(flags.global);
+    }
+
+    pub const fn get_ppn(&self) -> PhysicalPageNumber {
+        PhysicalPageNumber::from_raw_physical_page_number(
+            ((self.0 >> 10) & 0x0000_0FFF_FFFF_FFFF) as usize,
+        )
+    }
+
+    pub const fn set_ppn(&mut self, ppn: PhysicalPageNumber) {
+        // Clear the old PPN and set the new one.
+        self.0 = (self.0 & !0x0000_003F_FFFF_FFF0)
+            | ((ppn.raw_ppn() as u64 & 0x0000_0FFF_FFFF_FFFF) << 10);
+    }
+
     pub const fn is_leaf(&self) -> bool {
         // An entry is a leaf if it's valid and has at least one of R, W, or X
         // bits set.
         self.is_valid() && (self.is_readable() || self.is_writable() || self.is_executable())
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct PageTableEntryFlags {
+    pub readable: bool,
+    pub writable: bool,
+    pub executable: bool,
+    pub user: bool,
+    pub global: bool,
+}
+
+impl PageTableEntryFlags {
+    pub const fn get_readable(&self) -> bool {
+        self.readable
+    }
+
+    pub fn set_readable(&mut self, readable: bool) {
+        self.readable = readable;
+    }
+
+    pub const fn get_writable(&self) -> bool {
+        self.writable
+    }
+
+    pub fn set_writable(&mut self, writable: bool) {
+        self.writable = writable;
+    }
+
+    pub const fn get_executable(&self) -> bool {
+        self.executable
+    }
+
+    pub fn set_executable(&mut self, executable: bool) {
+        self.executable = executable;
+    }
+
+    pub const fn get_user(&self) -> bool {
+        self.user
+    }
+
+    pub fn set_user(&mut self, user: bool) {
+        self.user = user;
+    }
+
+    pub const fn get_global(&self) -> bool {
+        self.global
+    }
+
+    pub fn set_global(&mut self, global: bool) {
+        self.global = global;
     }
 }
 
@@ -269,6 +332,7 @@ pub fn allocate_vpn(
     page_table_root: &mut PageTable,
     vpn: VirtualPageNumber,
     ppn: Option<PhysicalPageNumber>,
+    flags: &PageTableEntryFlags,
     physical_memory_allocator: &mut impl PhysicalMemoryAllocator,
 ) -> Option<PhysicalPageNumber> {
     // Extract the 9-bit indices for each level of the page table.
@@ -349,18 +413,39 @@ pub fn allocate_vpn(
 
     // Set up the level 0 entry as a leaf entry.
     page_table_entry_0.set_valid(true);
-    page_table_entry_0.set_ppn(physical_page_ppn);
-    page_table_entry_0.set_readable(true);
-    page_table_entry_0.set_writable(true);
-    page_table_entry_0.set_executable(true);
     page_table_entry_0.set_accessed(false);
     page_table_entry_0.set_dirty(false);
+    page_table_entry_0.set_ppn(physical_page_ppn);
+
+    page_table_entry_0.set_flags(flags);
 
     // Write the updated entry back to the level 0 page table.
     page_table_level_0.set_entry(vpn0, page_table_entry_0);
 
     // Return the physical page number that was allocated or provided.
     Some(physical_page_ppn)
+}
+
+pub fn identity_map_range(
+    page_table_root: &mut PageTable,
+    start_ppn_inclusive: PhysicalPageNumber,
+    end_ppn_inclusive: PhysicalPageNumber,
+    flags: &PageTableEntryFlags,
+    physical_memory_allocator: &mut impl PhysicalMemoryAllocator,
+) {
+    let mut current_ppn = start_ppn_inclusive;
+    while current_ppn <= end_ppn_inclusive {
+        let vpn = VirtualPageNumber::from_raw_virtual_page_number(current_ppn.raw_ppn());
+        allocate_vpn(
+            page_table_root,
+            vpn,
+            Some(current_ppn),
+            flags,
+            physical_memory_allocator,
+        );
+
+        current_ppn = PhysicalPageNumber::from_raw_physical_page_number(current_ppn.raw_ppn() + 1);
+    }
 }
 
 pub fn translate_virtual_address(page_table_root: &PageTable, virtual_address: usize) -> usize {

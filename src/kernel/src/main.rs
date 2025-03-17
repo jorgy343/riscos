@@ -13,7 +13,7 @@ use dtb::{
 use kernel_library::memory::{
     PhysicalPageNumber, VirtualPageNumber,
     memory_map::MemoryMap,
-    mmu::{self, PageTable, PageTableEntry},
+    mmu::{self, PageTable, PageTableEntry, PageTableEntryFlags},
     physical_memory_allocator::{PhysicalBumpAllocator, PhysicalMemoryAllocator},
 };
 
@@ -177,11 +177,6 @@ fn create_physical_memory_allocator(memory_map: &mut MemoryMap) -> &mut Physical
 }
 
 fn setup_mmu(physical_memory_allocator: &mut impl PhysicalMemoryAllocator) {
-    unsafe extern "C" {
-        static _kernel_begin: usize;
-        static _kernel_end_exclusive: usize;
-    }
-
     debug_println!("Setting up MMU with sv39 paging...");
 
     // Get a mutable reference to the root page table.
@@ -189,12 +184,6 @@ fn setup_mmu(physical_memory_allocator: &mut impl PhysicalMemoryAllocator) {
 
     // Clear the root page table to ensure all entries start as invalid.
     root_page_table.clear();
-
-    // Get physical addresses of kernel start and end.
-    let kernel_start_physical_address = unsafe { &_kernel_begin as *const _ as usize };
-    let kernel_end_exclusive_physical_address =
-        unsafe { &_kernel_end_exclusive as *const _ as usize };
-    let kernel_size_bytes = kernel_end_exclusive_physical_address - kernel_start_physical_address;
 
     // Create the recursive mapping for the root page table at index 511. This
     // allows the page tables to be accessed as virtual memory after paging is
@@ -205,8 +194,6 @@ fn setup_mmu(physical_memory_allocator: &mut impl PhysicalMemoryAllocator) {
 
     let mut recursive_entry = PageTableEntry::new();
     recursive_entry.set_valid(true);
-    recursive_entry.set_readable(true);
-    recursive_entry.set_writable(true);
     recursive_entry.set_ppn(root_physical_page_number);
 
     // Install the recursive mapping at index 511 (last entry).
@@ -217,45 +204,114 @@ fn setup_mmu(physical_memory_allocator: &mut impl PhysicalMemoryAllocator) {
         root_physical_page_number.raw_ppn()
     );
 
-    // Identity map the kernel memory region. This ensures the kernel keeps
-    // working when we activate the MMU.
-    let mut bytes_mapped = 0;
-    let mut page_count = 0;
+    // Identity map the .text, .data, .bss, and .rodata sections.
+    const PAGE_SIZE: usize = 4096;
 
-    while bytes_mapped < kernel_size_bytes {
-        let current_physical_address = kernel_start_physical_address + bytes_mapped;
-
-        // For identity mapping, virtual address equals physical address.
-        let virtual_page_number = VirtualPageNumber::from_virtual_address(current_physical_address);
-        let physical_page_number =
-            PhysicalPageNumber::from_physical_address(current_physical_address);
-
-        // Map a single page using the allocate_vpn function from the mmu
-        // module.
-        if mmu::allocate_vpn(
-            root_page_table,
-            virtual_page_number,
-            Some(physical_page_number),
-            physical_memory_allocator,
-        )
-        .is_none()
-        {
-            panic!("Failed to set up memory mapping for kernel.");
-        }
-
-        // Move to the next 4 KiB page.
-        bytes_mapped += 4096;
-        page_count += 1;
+    unsafe extern "C" {
+        static _text_begin: usize;
+        static _text_end: usize;
+        static _data_begin: usize;
+        static _data_end: usize;
+        static _bss_begin: usize;
+        static _bss_end: usize;
+        static _rodata_begin: usize;
+        static _rodata_end: usize;
+        static _stack_begin: usize;
+        static _stack_end: usize;
     }
 
-    debug_println!(
-        "Identity mapped kernel memory: {} pages ({} bytes).",
-        page_count,
-        page_count * 4096
+    let text_begin = unsafe { &_text_begin as *const _ as usize };
+    let text_end = unsafe { &_text_end as *const _ as usize };
+    let data_begin = unsafe { &_data_begin as *const _ as usize };
+    let data_end = unsafe { &_data_end as *const _ as usize };
+    let bss_begin = unsafe { &_bss_begin as *const _ as usize };
+    let bss_end = unsafe { &_bss_end as *const _ as usize };
+    let rodata_begin = unsafe { &_rodata_begin as *const _ as usize };
+    let rodata_end = unsafe { &_rodata_end as *const _ as usize };
+    let stack_begin_address = unsafe { &_stack_begin as *const _ as usize };
+    let stack_end_address = unsafe { &_stack_end as *const _ as usize };
+
+    // Identity map the .text section with the executable flag.
+    let mut text_flags = PageTableEntryFlags::default();
+    text_flags.set_executable(true);
+
+    let text_start_ppn = PhysicalPageNumber::from_physical_address(text_begin);
+    let text_end_ppn = PhysicalPageNumber::from_physical_address(text_end);
+
+    mmu::identity_map_range(
+        root_page_table,
+        text_start_ppn,
+        text_end_ppn,
+        &text_flags,
+        physical_memory_allocator,
     );
 
-    // TODO: Map additional required regions (e.g., MMIO regions, device
-    // memory).
+    // Identity map the .data section with readable and writable flags.
+    let mut data_flags = PageTableEntryFlags::default();
+    data_flags.set_readable(true);
+    data_flags.set_writable(true);
+
+    let data_start_ppn = PhysicalPageNumber::from_physical_address(data_begin);
+    let data_end_ppn = PhysicalPageNumber::from_physical_address(data_end);
+
+    mmu::identity_map_range(
+        root_page_table,
+        data_start_ppn,
+        data_end_ppn,
+        &data_flags,
+        physical_memory_allocator,
+    );
+
+    // Identity map the .rodata section with the readable flag.
+    let mut rodata_flags = PageTableEntryFlags::default();
+    rodata_flags.set_readable(true);
+
+    let rodata_start_ppn = PhysicalPageNumber::from_physical_address(rodata_begin);
+    let rodata_end_ppn = PhysicalPageNumber::from_physical_address(rodata_end);
+
+    mmu::identity_map_range(
+        root_page_table,
+        rodata_start_ppn,
+        rodata_end_ppn,
+        &rodata_flags,
+        physical_memory_allocator,
+    );
+
+    // Identity map the .bss section with readable and writable flags.
+    let mut bss_flags = PageTableEntryFlags::default();
+    bss_flags.set_readable(true);
+    bss_flags.set_writable(true);
+
+    let bss_start_ppn = PhysicalPageNumber::from_physical_address(bss_begin);
+    let bss_end_ppn = PhysicalPageNumber::from_physical_address(bss_end);
+
+    mmu::identity_map_range(
+        root_page_table,
+        bss_start_ppn,
+        bss_end_ppn,
+        &bss_flags,
+        physical_memory_allocator,
+    );
+
+    // Identity map the stack data with readable and writable flags.
+    let mut stack_page_flags = PageTableEntryFlags::default();
+    stack_page_flags.set_readable(true);
+    stack_page_flags.set_writable(true);
+
+    let stack_start_ppn = PhysicalPageNumber::from_physical_address(stack_begin_address);
+    let stack_end_ppn = PhysicalPageNumber::from_physical_address(stack_end_address);
+
+    mmu::identity_map_range(
+        root_page_table,
+        stack_start_ppn,
+        stack_end_ppn,
+        &stack_page_flags,
+        physical_memory_allocator,
+    );
+
+    debug_println!();
+    //print_page_table_entries(root_page_table, 0, 2, 0);
+    debug_println!();
 
     // Set up the satp register to enable paging. Format for RV64 with sv39:
     // - MODE (bits 63:60) = 8 for sv39
@@ -267,17 +323,79 @@ fn setup_mmu(physical_memory_allocator: &mut impl PhysicalMemoryAllocator) {
 
     // Activate the MMU by writing to the satp register.
     unsafe {
-        // Flush the TLB before activating the MMU.
-        core::arch::asm!("sfence.vma", options(nomem, nostack));
-
-        // Write to satp to enable paging with sv39 mode.
-        core::arch::asm!("csrw satp, {}", in(reg) satp_value);
-
-        // Flush the TLB again after enabling paging.
-        core::arch::asm!("sfence.vma", options(nomem, nostack));
+        // Flush the TLB before activating the MMU, write to satp to enable
+        // paging, and flush the TLB again after enabling paging.
+        core::arch::asm!(
+            "csrw satp, {}",
+            "sfence.vma",
+            in(reg) satp_value,
+            options(nomem, nostack)
+        );
     }
 
     debug_println!("MMU activated with sv39 paging.");
+}
+
+fn print_page_table_entries(page_table: &PageTable, indent: usize, level: u8, base_vpn: usize) {
+    let span = 512_usize.pow(level as u32);
+    for i in 0..512 {
+        // Skip index 511 only for the root page table.
+        if level == 2 && i == 511 {
+            continue;
+        }
+        let entry = page_table.get_entry(i);
+        if !entry.is_valid() {
+            continue;
+        }
+        let entry_vpn = base_vpn + i * span;
+        debug_print!("{:1$} ", "", indent);
+        debug_print!(
+            "L{} Entry {}: VPN {:#x} -> PPN: {:#x} (Phys: {:#x}) Flags: [",
+            level,
+            i,
+            entry_vpn,
+            entry.get_ppn().raw_ppn(),
+            entry.get_ppn().to_physical_address()
+        );
+        if entry.is_valid() {
+            debug_print!("V");
+        } else {
+            debug_print!("-");
+        }
+        if entry.is_readable() {
+            debug_print!("R");
+        } else {
+            debug_print!("-");
+        }
+        if entry.is_writable() {
+            debug_print!("W");
+        } else {
+            debug_print!("-");
+        }
+        if entry.is_executable() {
+            debug_print!("X");
+        } else {
+            debug_print!("-");
+        }
+        if entry.is_user() {
+            debug_print!("U");
+        } else {
+            debug_print!("-");
+        }
+        if entry.is_global() {
+            debug_print!("G");
+        } else {
+            debug_print!("-");
+        }
+        debug_println!("]");
+
+        // If the entry is a pointer to another page table, recursively print
+        // its entries.
+        if !entry.is_leaf() && level > 0 {
+            let child_pt = unsafe { &*(entry.get_ppn().to_physical_address() as *const PageTable) };
+            print_page_table_entries(child_pt, indent + 2, level - 1, entry_vpn);
+        }
+    }
 }
 
 #[panic_handler]
