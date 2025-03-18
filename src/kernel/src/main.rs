@@ -11,7 +11,7 @@ use dtb::{
     walk_memory_reservation_entries, walk_structure_block,
 };
 use kernel_library::memory::{
-    PhysicalPageNumber,
+    PhysicalPageNumber, VirtualPageNumber,
     memory_map::MemoryMap,
     mmu::{self, PageTable, PageTableEntry, PageTableEntryFlags},
     physical_memory_allocator::{PhysicalBumpAllocator, PhysicalMemoryAllocator},
@@ -309,10 +309,7 @@ fn setup_mmu(physical_memory_allocator: &mut impl PhysicalMemoryAllocator) {
         physical_memory_allocator,
     );
 
-    // Map the first 128GiB of physical memory to the top 128GiB of virtual
-    // memory. This will give the kernel the ability to access any physical
-    // memory address. Importantly, this will allow the kernel to access every
-    // page table we have created and will create.
+    map_physical_memory(root_page_table);
 
     debug_println!();
     print_page_table_entries(root_page_table, 0, 2, 0);
@@ -341,57 +338,117 @@ fn setup_mmu(physical_memory_allocator: &mut impl PhysicalMemoryAllocator) {
     debug_println!("MMU activated with sv39 paging.");
 }
 
+/// Map the first 128GiB of physical memory to the top 128GiB of virtual memory.
+/// This will give the kernel the ability to access any physical memory address.
+/// Importantly, this will allow the kernel to access every page table we have
+/// created and will create.
+fn map_physical_memory(root_page_table: &mut PageTable) {
+    // Define the number of gigabytes to map (128GiB).
+    const GIGABYTES_TO_MAP: usize = 128;
+
+    // Create page table entry flags for this direct mapping section. These
+    // pages should be readable and writable, but not executable. Also mark
+    // these pages as global since they will be part of every address space.
+    let mut direct_mapping_flags = PageTableEntryFlags::default();
+    direct_mapping_flags.set_readable(true);
+    direct_mapping_flags.set_writable(true);
+    direct_mapping_flags.set_global(true);
+
+    debug_println!(
+        "Mapping first {}GiB of physical memory to top of virtual memory.",
+        GIGABYTES_TO_MAP
+    );
+
+    // Map each gigabyte individually.
+    for gib_index in 0..GIGABYTES_TO_MAP {
+        // Calculate the virtual page number for this mapping. For the top
+        // 128GiB, we start at index (512 - 128) = 384.
+        let vpn2_index = 512 - GIGABYTES_TO_MAP + gib_index;
+        let virtual_page_number = VirtualPageNumber::from_raw_virtual_page_number(vpn2_index << 18);
+
+        // The physical page number for this mapping is just the index * 1GiB
+        // since we're mapping 0..128GiB to the top of the address space.
+        let physical_page_number =
+            PhysicalPageNumber::from_raw_physical_page_number(gib_index << 18);
+
+        // Create the mapping using the gigapage mapper.
+        let mapping_result = mmu::allocate_level_2_vpn(
+            root_page_table,
+            virtual_page_number,
+            physical_page_number,
+            &direct_mapping_flags,
+        );
+
+        if !mapping_result {
+            debug_println!(
+                "  Failed to map 1GiB at Virtual [{:#x}] -> Physical [{:#x}]",
+                virtual_page_number.to_virtual_address(),
+                physical_page_number.to_physical_address()
+            );
+        }
+    }
+
+    debug_println!("  Direct mapping of physical memory complete.");
+    debug_println!();
+}
+
 fn print_page_table_entries(page_table: &PageTable, indent: usize, level: u8, base_vpn: usize) {
     let span = 512_usize.pow(level as u32);
     for i in 0..512 {
-        // Skip index 511 only for the root page table.
-        if level == 2 && i == 511 {
-            continue;
-        }
         let entry = page_table.get_entry(i);
         if !entry.is_valid() {
             continue;
         }
+
         let entry_vpn = base_vpn + i * span;
-        debug_print!("{:1$} ", "", indent);
+
+        debug_print!("{:1$}", "", indent);
         debug_print!(
-            "L{} Entry {}: VPN {:#x} -> PPN: {:#x} (Phys: {:#x}) Flags: [",
+            "L{} Entry {}: VPN {:#007x} (Virt: {:#016x}) -> PPN: {:#011x} (Phys: {:#016x}) Flags: [",
             level,
             i,
             entry_vpn,
+            entry_vpn << 12,
             entry.get_ppn().raw_ppn(),
             entry.get_ppn().to_physical_address()
         );
+
         if entry.is_valid() {
             debug_print!("V");
         } else {
             debug_print!("-");
         }
+
         if entry.is_readable() {
             debug_print!("R");
         } else {
             debug_print!("-");
         }
+
         if entry.is_writable() {
             debug_print!("W");
         } else {
             debug_print!("-");
         }
+
         if entry.is_executable() {
             debug_print!("X");
         } else {
             debug_print!("-");
         }
+
         if entry.is_user() {
             debug_print!("U");
         } else {
             debug_print!("-");
         }
+
         if entry.is_global() {
             debug_print!("G");
         } else {
             debug_print!("-");
         }
+
         debug_println!("]");
 
         // If the entry is a pointer to another page table, recursively print

@@ -366,6 +366,84 @@ pub fn allocate_vpn(
     Some(physical_page_ppn)
 }
 
+/// Maps a virtual page number directly to a physical page number using a level
+/// 2 (1 GiB) gigapage mapping in the sv39 paging mode.
+///
+/// This function creates a single page table entry at the level 2 page table
+/// (the root) that maps an entire 1 GiB region of virtual memory to a
+/// corresponding 1 GiB region of physical memory. This is more efficient than
+/// using 4 KiB mappings for large memory regions as it requires fewer page
+/// table entries and TLB entries.
+///
+/// This function does not allocate memory to back the page table entry. It is
+/// assumed that the caller has already allocated the physical page number and
+/// ensured it is aligned to a 1 GiB boundary.
+///
+/// # Arguments
+///
+/// * `page_table_root` - A mutable reference to the root page table.
+/// * `vpn` - The virtual page number to map. Only the level 2 index (bits
+///   26-18) is used.
+/// * `ppn` - The physical page number to map to. This should be aligned to a 1
+///   GiB boundary.
+/// * `flags` - Page table entry flags to apply (readable, writable, executable,
+///   etc.).
+///
+/// # Returns
+///
+/// * `true` - If the mapping was successfully created.
+/// * `false` - If the mapping could not be created because:
+///   - The entry already exists as a leaf entry.
+///   - The entry already points to a level 1 page table (has child pages).
+///
+/// # Notes
+///
+/// * This function creates a 1 GiB mapping (gigapage), so the physical page
+///   number should be aligned to a 1 GiB boundary for proper operation.
+/// * When using this function, the caller must ensure the provided physical
+///   page number is correctly aligned, as this function does not perform
+///   alignment checks.
+/// * In sv39 mode, this maps a single entry in the level 2 page table, covering
+///   the entire address range for that index (1 GiB).
+pub fn allocate_level_2_vpn(
+    page_table_root: &mut PageTable,
+    vpn: VirtualPageNumber,
+    ppn: PhysicalPageNumber,
+    flags: &PageTableEntryFlags,
+) -> bool {
+    let vpn2 = vpn.get_level_2_index();
+
+    // Get the current level 2 entry.
+    let mut page_table_level_2_entry = *page_table_root.get_entry(vpn2);
+
+    // Check if the entry is already valid and is a leaf entry.
+    if page_table_level_2_entry.is_valid() && page_table_level_2_entry.is_leaf() {
+        // Entry is already allocated as a leaf, return the physical page
+        // number.
+        return false;
+    }
+
+    // If the entry is already valid but not a leaf (points to a level 1 page
+    // table), we cannot convert it to a leaf as it would invalidate existing
+    // mappings.
+    if page_table_level_2_entry.is_valid() {
+        return false;
+    }
+
+    // Clear the entry.
+    page_table_level_2_entry.clear();
+
+    // Set up the level 2 entry as a leaf entry.
+    page_table_level_2_entry.set_valid(true);
+    page_table_level_2_entry.set_flags(flags);
+    page_table_level_2_entry.set_ppn(ppn);
+
+    // Write the updated entry back to the root page table.
+    page_table_root.set_entry(vpn2, page_table_level_2_entry);
+
+    true
+}
+
 /// Maps a range of physical pages to the same virtual addresses in the page
 /// table.
 ///
