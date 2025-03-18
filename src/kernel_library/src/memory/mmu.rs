@@ -32,16 +32,16 @@ impl PageTable {
         &self.entries[index]
     }
 
-    pub const fn get_entries(&self) -> &[PageTableEntry] {
-        &self.entries
-    }
-
     pub const fn get_entry_mut(&mut self, index: usize) -> &mut PageTableEntry {
         &mut self.entries[index]
     }
 
     pub const fn set_entry(&mut self, index: usize, entry: PageTableEntry) {
         self.entries[index] = entry;
+    }
+
+    pub const fn get_entries(&self) -> &[PageTableEntry] {
+        &self.entries
     }
 }
 
@@ -204,7 +204,7 @@ impl PageTableEntryFlags {
         self.readable
     }
 
-    pub fn set_readable(&mut self, readable: bool) {
+    pub const fn set_readable(&mut self, readable: bool) {
         self.readable = readable;
     }
 
@@ -212,7 +212,7 @@ impl PageTableEntryFlags {
         self.writable
     }
 
-    pub fn set_writable(&mut self, writable: bool) {
+    pub const fn set_writable(&mut self, writable: bool) {
         self.writable = writable;
     }
 
@@ -220,7 +220,7 @@ impl PageTableEntryFlags {
         self.executable
     }
 
-    pub fn set_executable(&mut self, executable: bool) {
+    pub const fn set_executable(&mut self, executable: bool) {
         self.executable = executable;
     }
 
@@ -228,7 +228,7 @@ impl PageTableEntryFlags {
         self.user
     }
 
-    pub fn set_user(&mut self, user: bool) {
+    pub const fn set_user(&mut self, user: bool) {
         self.user = user;
     }
 
@@ -236,90 +236,30 @@ impl PageTableEntryFlags {
         self.global
     }
 
-    pub fn set_global(&mut self, global: bool) {
+    pub const fn set_global(&mut self, global: bool) {
         self.global = global;
     }
 }
 
-/// Calculates the recursive virtual page number for a page table at a specific
-/// level containing the given virtual page number.
-///
-/// In a recursive page table mapping, the page tables themselves are mapped
-/// into virtual memory. This function computes the virtual page number where
-/// the page table at the specified level containing the given VPN would be
-/// mapped in a recursive page table configuration.
-///
-/// # Arguments
-///
-/// * `vpn` - The virtual page number for which we want to find the containing
-///   page table's VPN.
-/// * `level` - The level of the page table to get the VPN for:
-///     * 0 - The level-0 page table (leaf level)
-///     * 1 - The level-1 page table (middle level)
-///     * 2 - The level-2 page table (root level)
-///
-/// # Returns
-///
-/// A `VirtualPageNumber` representing where the specified page table is mapped
-/// in virtual memory.
-fn get_recursive_vpn_for_page_table_at_level(
-    vpn: VirtualPageNumber,
-    level: usize,
-) -> Option<VirtualPageNumber> {
-    // In sv39, there are 9 bits per level, with 3 levels total. For recursive
-    // mapping, we use a fixed index in the root page table to point to itself.
-    // By convention, we'll use the last entry (index 511) for the recursive
-    // mapping.
-
-    // Extract the VPN indices.
-    let vpn2 = vpn.get_level_2_index();
-    let vpn1 = vpn.get_level_1_index();
-
-    // Determine the indices for our recursive VPN based on the requested level:
-    let recursive_vpn_raw = match level {
-        // Level-0 page table (leaf level).
-        0 => {
-            // vpn2=511, vpn1=original vpn2, vpn0=original vpn1
-            // [511][original_vpn2][original_vpn1]
-            (511 << 18) | (vpn2 << 9) | vpn1
-        }
-        // Level-1 page table (middle level).
-        1 => {
-            // vpn2=511, vpn1=511, vpn0=original vpn2 [511][511][original_vpn2]
-            (511 << 18) | (511 << 9) | vpn2
-        }
-        // Level-2 page table (root level).
-        2 => {
-            // vpn2=511, vpn1=511, vpn0=511 [511][511][511]
-            (511 << 18) | (511 << 9) | 511
-        }
-        // Invalid pgae table level requested.
-        _ => return None,
-    };
-
-    // Create and return the new VPN.
-    Some(VirtualPageNumber::from_raw_virtual_page_number(
-        recursive_vpn_raw,
-    ))
-}
-
-/// Allocates a physical page and maps it to the specified virtual page number.
+/// Assigns a new physical page to the specified virtual page number in the page
+/// table. A new physical page is allocated if the provided physical page number
+/// is None.
 ///
 /// This function walks the page table hierarchy starting from the root page
 /// table, creating intermediate page tables as needed. It maps the requested
 /// virtual page number to a physical page, either by using the provided
 /// physical page number or by allocating a new page when needed. The resulting
-/// leaf entry is configured with valid, readable, writable, and executable
-/// permissions, while the accessed and dirty flags are initially cleared. If
-/// the page is already allocated, the function returns the existing physical
-/// page mapping.
+/// leaf entry's valid, readable, writable, and executable permissions are set
+/// based on the flags argument. The accessed and dirty flags are initially
+/// cleared. If the page is already allocated, the function returns the existing
+/// physical page.
 ///
 /// # Arguments
 ///
 /// * `page_table_root` - A mutable reference to the root page table.
 /// * `vpn` - The virtual page number to allocate and map.
 /// * `ppn` - An optional physical page number to use for mapping. If `None`, a
-///   new physical page is allocated.
+///   new physical page is allocated if needed.
 /// * `physical_memory_allocator` - A mutable reference to a physical memory
 ///   allocator.
 ///
@@ -341,91 +281,119 @@ pub fn allocate_vpn(
     let vpn0 = vpn.get_level_0_index();
 
     // Get the level 2 (root) entry.
-    let mut page_table_entry_2 = *page_table_root.get_entry(vpn2);
+    let mut page_table_level_2_entry = *page_table_root.get_entry(vpn2);
 
     // If the level 2 entry is not valid, allocate a new level 1 page table.
-    if !page_table_entry_2.is_valid() {
+    if !page_table_level_2_entry.is_valid() {
         let page_table_level_1_ptr = physical_memory_allocator.allocate_page()?;
+        let page_table_level_1_ppn =
+            PhysicalPageNumber::from_physical_address(page_table_level_1_ptr as usize);
+        let page_table_level_1 = unsafe { &mut *(page_table_level_1_ptr as *mut PageTable) };
 
         // Initialize the new page table to all zeros.
-        let page_table_level_1 = unsafe { &mut *(page_table_level_1_ptr as *mut PageTable) };
         page_table_level_1.clear();
 
         // Set up the level 2 entry to point to the new level 1 page table.
-        let level_1_ppn =
-            PhysicalPageNumber::from_physical_address(page_table_level_1_ptr as usize);
-        page_table_entry_2.set_valid(true);
-        page_table_entry_2.set_ppn(level_1_ppn);
+        page_table_level_2_entry.set_valid(true);
+        page_table_level_2_entry.set_ppn(page_table_level_1_ppn);
 
         // Write the updated entry back to the root page table.
-        page_table_root.set_entry(vpn2, page_table_entry_2);
+        page_table_root.set_entry(vpn2, page_table_level_2_entry);
     }
 
     // Access the level 1 page table.
     let page_table_level_1_ptr =
-        page_table_entry_2.get_ppn().to_physical_address() as *mut PageTable;
+        page_table_level_2_entry.get_ppn().to_physical_address() as *mut PageTable;
     let page_table_level_1 = unsafe { &mut *page_table_level_1_ptr };
 
     // Get the level 1 entry.
-    let mut page_table_entry_1 = *page_table_level_1.get_entry(vpn1);
+    let mut page_table_level_1_entry = *page_table_level_1.get_entry(vpn1);
 
     // If the level 1 entry is not valid, allocate a new level 0 page table.
-    if !page_table_entry_1.is_valid() {
+    if !page_table_level_1_entry.is_valid() {
         let page_table_level_0_ptr = physical_memory_allocator.allocate_page()?;
+        let page_table_level_0_ppn =
+            PhysicalPageNumber::from_physical_address(page_table_level_0_ptr as usize);
+        let page_table_level_0 = unsafe { &mut *(page_table_level_0_ptr as *mut PageTable) };
 
         // Initialize the new page table to all zeros.
-        let page_table_level_0 = unsafe { &mut *(page_table_level_0_ptr as *mut PageTable) };
         page_table_level_0.clear();
 
         // Set up the level 1 entry to point to the new level 0 page table.
-        let level_0_ppn =
-            PhysicalPageNumber::from_physical_address(page_table_level_0_ptr as usize);
-        page_table_entry_1.set_valid(true);
-        page_table_entry_1.set_ppn(level_0_ppn);
+        page_table_level_1_entry.set_valid(true);
+        page_table_level_1_entry.set_ppn(page_table_level_0_ppn);
 
         // Write the updated entry back to the level 1 page table.
-        page_table_level_1.set_entry(vpn1, page_table_entry_1);
+        page_table_level_1.set_entry(vpn1, page_table_level_1_entry);
     }
 
     // Access the level 0 page table.
     let page_table_level_0_ptr =
-        page_table_entry_1.get_ppn().to_physical_address() as *mut PageTable;
+        page_table_level_1_entry.get_ppn().to_physical_address() as *mut PageTable;
     let page_table_level_0 = unsafe { &mut *page_table_level_0_ptr };
 
     // Get the level 0 entry.
-    let mut page_table_entry_0 = *page_table_level_0.get_entry(vpn0);
+    let mut page_table_level_0_entry = *page_table_level_0.get_entry(vpn0);
 
     // Check if the page is already allocated.
-    if page_table_entry_0.is_valid() && page_table_entry_0.is_leaf() {
+    if page_table_level_0_entry.is_valid() && page_table_level_0_entry.is_leaf() {
         // Page already allocated, return the physical page number.
-        return Some(page_table_entry_0.get_ppn());
+        return Some(page_table_level_0_entry.get_ppn());
     }
 
     // Determine the physical page to map.
-    let physical_page_ppn = if let Some(provided_ppn) = ppn {
+    let physical_page_ppn = if let Some(some_ppn) = ppn {
         // Use the provided physical page number.
-        provided_ppn
+        some_ppn
     } else {
         // Allocate a new physical page for the actual memory.
         let physical_page_ptr = physical_memory_allocator.allocate_page()?;
         PhysicalPageNumber::from_physical_address(physical_page_ptr as usize)
     };
 
-    // Set up the level 0 entry as a leaf entry.
-    page_table_entry_0.set_valid(true);
-    page_table_entry_0.set_accessed(false);
-    page_table_entry_0.set_dirty(false);
-    page_table_entry_0.set_ppn(physical_page_ppn);
+    // Clear the entry to zeroes.
+    page_table_level_0_entry.clear();
 
-    page_table_entry_0.set_flags(flags);
+    // Set up the level 0 entry as a leaf entry.
+    page_table_level_0_entry.set_valid(true);
+    page_table_level_0_entry.set_flags(flags);
+    page_table_level_0_entry.set_ppn(physical_page_ppn);
 
     // Write the updated entry back to the level 0 page table.
-    page_table_level_0.set_entry(vpn0, page_table_entry_0);
+    page_table_level_0.set_entry(vpn0, page_table_level_0_entry);
 
     // Return the physical page number that was allocated or provided.
     Some(physical_page_ppn)
 }
 
+/// Maps a range of physical pages to the same virtual addresses in the page
+/// table.
+///
+/// This function performs identity mapping, meaning that physical addresses are
+/// mapped to the same virtual addresses. It iterates from the start page number
+/// through the end page number (inclusive) and creates a mapping for each page
+/// with the specified flags.
+///
+/// # Arguments
+///
+/// * `page_table_root` - A mutable reference to the root page table where
+///   mappings will be added.
+/// * `start_ppn_inclusive` - The starting physical page number (inclusive) of
+///   the range to map.
+/// * `end_ppn_inclusive` - The ending physical page number (inclusive) of the
+///   range to map.
+/// * `flags` - Page table entry flags to apply to each mapping (readable,
+///   writable, executable, etc.).
+/// * `physical_memory_allocator` - A mutable reference to a physical memory
+///   allocator used for creating page tables if needed.
+///
+/// # Notes
+///
+/// * If the start page number is greater than the end page number, the function
+///   returns without doing anything.
+/// * This function may create intermediate page table entries as necessary.
+/// * Errors in allocation are silently ignored - if a page mapping fails, the
+///   function continues with the next page.
 pub fn identity_map_range(
     page_table_root: &mut PageTable,
     start_ppn_inclusive: PhysicalPageNumber,
@@ -433,6 +401,10 @@ pub fn identity_map_range(
     flags: &PageTableEntryFlags,
     physical_memory_allocator: &mut impl PhysicalMemoryAllocator,
 ) {
+    if start_ppn_inclusive > end_ppn_inclusive {
+        return;
+    }
+
     let mut current_ppn = start_ppn_inclusive;
     while current_ppn <= end_ppn_inclusive {
         let vpn = VirtualPageNumber::from_raw_virtual_page_number(current_ppn.raw_ppn());
@@ -448,37 +420,56 @@ pub fn identity_map_range(
     }
 }
 
-pub fn translate_virtual_address(page_table_root: &PageTable, virtual_address: usize) -> usize {
-    let offset: usize = virtual_address & 0x0000_0000_0000_0FFF;
-    let vpn0: usize = ((virtual_address >> 12) & 0x1FF) as usize;
-    let vpn1: usize = ((virtual_address >> 21) & 0x1FF) as usize;
+/// Translates a virtual address to its corresponding physical address using the
+/// provided root page table.
+///
+/// This function walks the three-level page table hierarchy to perform the
+/// address translation. It returns None if any page table entry in the
+/// translation path is invalid.
+///
+/// # Arguments
+///
+/// * `page_table_root` - A reference to the root (level 2) page table.
+/// * `virtual_address` - The virtual address to translate.
+///
+/// # Returns
+///
+/// * `Some(usize)` - The physical address if translation succeeds.
+/// * `None` - If translation fails due to any invalid page table entries.
+pub fn translate_virtual_address(
+    page_table_root: &PageTable,
+    virtual_address: usize,
+) -> Option<usize> {
     let vpn2: usize = ((virtual_address >> 30) & 0x1FF) as usize;
+    let vpn1: usize = ((virtual_address >> 21) & 0x1FF) as usize;
+    let vpn0: usize = ((virtual_address >> 12) & 0x1FF) as usize;
+    let offset: usize = virtual_address & 0x0000_0000_0000_0FFF;
 
-    let page_table_entry_2 = page_table_root.get_entry(vpn2);
-    if !page_table_entry_2.is_valid() {
-        return 0;
+    let page_table_level_2_entry = page_table_root.get_entry(vpn2);
+    if !page_table_level_2_entry.is_valid() {
+        return None;
     }
 
     let page_table_level_1 =
-        unsafe { &*(page_table_entry_2.get_ppn().to_physical_address() as *const PageTable) };
+        unsafe { &*(page_table_level_2_entry.get_ppn().to_physical_address() as *const PageTable) };
 
-    let page_table_entry_1 = page_table_level_1.get_entry(vpn1);
-    if !page_table_entry_1.is_valid() {
-        return 0;
+    let page_table_level_1_entry = page_table_level_1.get_entry(vpn1);
+    if !page_table_level_1_entry.is_valid() {
+        return None;
     }
 
     let page_table_level_0 =
-        unsafe { &*(page_table_entry_1.get_ppn().to_physical_address() as *const PageTable) };
+        unsafe { &*(page_table_level_1_entry.get_ppn().to_physical_address() as *const PageTable) };
 
-    let page_table_entry_0 = page_table_level_0.get_entry(vpn0);
-    if !page_table_entry_0.is_valid() {
-        return 0;
+    let page_table_level_0_entry = page_table_level_0.get_entry(vpn0);
+    if !page_table_level_0_entry.is_valid() {
+        return None;
     }
 
-    let ppn = page_table_entry_0.get_ppn();
+    let ppn = page_table_level_0_entry.get_ppn();
     let physical_address = ppn.to_physical_address() | offset;
 
-    physical_address
+    Some(physical_address)
 }
 
 #[cfg(test)]
@@ -550,7 +541,7 @@ mod tests {
         let result = translate_virtual_address(&root, virtual_address);
 
         cleanup_page_tables(level1_ptr, level0_ptr);
-        assert_eq!(result, expected_physical_address);
+        assert_eq!(result, Some(expected_physical_address));
     }
 
     #[test]
@@ -562,7 +553,7 @@ mod tests {
 
         let result = translate_virtual_address(&root, virtual_address);
         assert_eq!(
-            result, 0,
+            result, None,
             "Translation should fail with invalid root entry."
         );
     }
@@ -590,7 +581,7 @@ mod tests {
         }
 
         assert_eq!(
-            result, 0,
+            result, None,
             "Translation should fail with invalid level 1 entry."
         );
     }
@@ -629,7 +620,7 @@ mod tests {
         }
 
         assert_eq!(
-            result, 0,
+            result, None,
             "Translation should fail with invalid level 0 entry."
         );
     }
@@ -651,176 +642,14 @@ mod tests {
         cleanup_page_tables(level1_ptr, level0_ptr);
 
         assert_eq!(
-            result_1, expected_physical_address_1 as usize,
+            result_1,
+            Some(expected_physical_address_1),
             "Translation with zero offset failed."
         );
         assert_eq!(
-            result_2, expected_physical_address_2,
+            result_2,
+            Some(expected_physical_address_2),
             "Translation with maximum offset failed."
-        );
-    }
-
-    #[test]
-    fn test_get_recursive_vpn_for_page_table_at_level_level0() {
-        // Create a VPN with known indices: vpn2=123, vpn1=456, vpn0=289
-        let vpn_raw = (123 << 18) | (456 << 9) | 289;
-        let vpn = VirtualPageNumber::from_raw_virtual_page_number(vpn_raw);
-
-        // Expected for level 0: vpn2=511, vpn1=123, vpn0=456
-        let expected_raw = (511 << 18) | (123 << 9) | 456;
-        let expected = VirtualPageNumber::from_raw_virtual_page_number(expected_raw);
-
-        let result = get_recursive_vpn_for_page_table_at_level(vpn, 0).unwrap();
-
-        assert_eq!(
-            result, expected,
-            "Recursive VPN calculation incorrect for level 0."
-        );
-        assert_eq!(
-            result.get_level_2_index(),
-            511,
-            "Recursive VPN level 2 index should be 511."
-        );
-        assert_eq!(
-            result.get_level_1_index(),
-            123,
-            "Recursive VPN level 1 index should match original vpn2."
-        );
-        assert_eq!(
-            result.get_level_0_index(),
-            456,
-            "Recursive VPN level 0 index should match original vpn1."
-        );
-    }
-
-    #[test]
-    fn test_get_recursive_vpn_for_page_table_at_level_level1() {
-        // Create a VPN with known indices: vpn2=123, vpn1=456, vpn0=289
-        let vpn_raw = (123 << 18) | (456 << 9) | 289;
-        let vpn = VirtualPageNumber::from_raw_virtual_page_number(vpn_raw);
-
-        // Expected for level 1: vpn2=511, vpn1=511, vpn0=123
-        let expected_raw = (511 << 18) | (511 << 9) | 123;
-        let expected = VirtualPageNumber::from_raw_virtual_page_number(expected_raw);
-
-        let result = get_recursive_vpn_for_page_table_at_level(vpn, 1).unwrap();
-
-        assert_eq!(
-            result, expected,
-            "Recursive VPN calculation incorrect for level 1."
-        );
-        assert_eq!(
-            result.get_level_2_index(),
-            511,
-            "Recursive VPN level 2 index should be 511."
-        );
-        assert_eq!(
-            result.get_level_1_index(),
-            511,
-            "Recursive VPN level 1 index should be 511."
-        );
-        assert_eq!(
-            result.get_level_0_index(),
-            123,
-            "Recursive VPN level 0 index should match original vpn2."
-        );
-    }
-
-    #[test]
-    fn test_get_recursive_vpn_for_page_table_at_level_level2() {
-        // Create a VPN with known indices: vpn2=123, vpn1=456, vpn0=289
-        let vpn_raw = (123 << 18) | (456 << 9) | 289;
-        let vpn = VirtualPageNumber::from_raw_virtual_page_number(vpn_raw);
-
-        // Expected for level 2: vpn2=511, vpn1=511, vpn0=511
-        let expected_raw = (511 << 18) | (511 << 9) | 511;
-        let expected = VirtualPageNumber::from_raw_virtual_page_number(expected_raw);
-
-        let result = get_recursive_vpn_for_page_table_at_level(vpn, 2).unwrap();
-
-        assert_eq!(
-            result, expected,
-            "Recursive VPN calculation incorrect for level 2."
-        );
-        assert_eq!(
-            result.get_level_2_index(),
-            511,
-            "Recursive VPN level 2 index should be 511."
-        );
-        assert_eq!(
-            result.get_level_1_index(),
-            511,
-            "Recursive VPN level 1 index should be 511."
-        );
-        assert_eq!(
-            result.get_level_0_index(),
-            511,
-            "Recursive VPN level 0 index should be 511."
-        );
-    }
-
-    #[test]
-    fn test_get_recursive_vpn_for_page_table_at_level_invalid_level() {
-        // Create a VPN with known indices: vpn2=123, vpn1=456, vpn0=289
-        let vpn_raw = (123 << 18) | (456 << 9) | 289;
-        let vpn = VirtualPageNumber::from_raw_virtual_page_number(vpn_raw);
-
-        // Try with an invalid level (3).
-        let result = get_recursive_vpn_for_page_table_at_level(vpn, 3);
-        assert_eq!(
-            result, None,
-            "Should return None for invalid page table level."
-        );
-    }
-
-    #[test]
-    fn test_get_recursive_vpn_for_page_table_at_level_boundary_values() {
-        // Test with minimum indices (all zeros) at level 0.
-        let min_vpn = VirtualPageNumber::from_raw_virtual_page_number(0);
-
-        // For level 0: vpn2=511, vpn1=0, vpn0=0
-        let min_result_level0 = get_recursive_vpn_for_page_table_at_level(min_vpn, 0).unwrap();
-        let expected_min_level0 = VirtualPageNumber::from_raw_virtual_page_number(511 << 18);
-        assert_eq!(
-            min_result_level0, expected_min_level0,
-            "Recursive VPN calculation incorrect for minimum VPN at level 0."
-        );
-        assert_eq!(min_result_level0.get_level_2_index(), 511);
-        assert_eq!(min_result_level0.get_level_1_index(), 0);
-        assert_eq!(min_result_level0.get_level_0_index(), 0);
-
-        // For level 1: vpn2=511, vpn1=511, vpn0=0
-        let min_result_level1 = get_recursive_vpn_for_page_table_at_level(min_vpn, 1).unwrap();
-        let expected_min_level1 =
-            VirtualPageNumber::from_raw_virtual_page_number((511 << 18) | (511 << 9));
-        assert_eq!(
-            min_result_level1, expected_min_level1,
-            "Recursive VPN calculation incorrect for minimum VPN at level 1."
-        );
-        assert_eq!(min_result_level1.get_level_2_index(), 511);
-        assert_eq!(min_result_level1.get_level_1_index(), 511);
-        assert_eq!(min_result_level1.get_level_0_index(), 0);
-
-        // Test with maximum indices (all 0x1FF = 511).
-        let max_vpn_raw = (511 << 18) | (511 << 9) | 511;
-        let max_vpn = VirtualPageNumber::from_raw_virtual_page_number(max_vpn_raw);
-
-        // For level 0: vpn2=511, vpn1=511, vpn0=511
-        let max_result_level0 = get_recursive_vpn_for_page_table_at_level(max_vpn, 0).unwrap();
-        let expected_max_level0 =
-            VirtualPageNumber::from_raw_virtual_page_number((511 << 18) | (511 << 9) | 511);
-        assert_eq!(
-            max_result_level0, expected_max_level0,
-            "Recursive VPN calculation incorrect for maximum VPN at level 0."
-        );
-
-        // For level 2 with max VPN: vpn2=511, vpn1=511, vpn0=511 (always the
-        // same).
-        let max_result_level2 = get_recursive_vpn_for_page_table_at_level(max_vpn, 2).unwrap();
-        assert_eq!(
-            max_result_level2,
-            expected_max_level0, // Same expected result as above.
-            "Recursive VPN calculation incorrect for maximum VPN at level 2."
         );
     }
 }

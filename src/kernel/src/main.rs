@@ -206,15 +206,7 @@ fn setup_mmu(physical_memory_allocator: &mut impl PhysicalMemoryAllocator) {
     recursive_entry.set_valid(true);
     recursive_entry.set_ppn(root_physical_page_number);
 
-    // Install the recursive mapping at index 511 (last entry).
-    root_page_table.set_entry(511, recursive_entry);
-
-    debug_println!(
-        "Created recursive mapping at index 511 with PPN: {:#x}",
-        root_physical_page_number.raw_ppn()
-    );
-
-    // Identity map the .text, .data, .bss, and .rodata sections.
+    // Identity map the .text, .data, .bss, .rodata, and stack sections.
     unsafe extern "C" {
         static _text_begin: usize;
         static _text_end: usize;
@@ -316,6 +308,11 @@ fn setup_mmu(physical_memory_allocator: &mut impl PhysicalMemoryAllocator) {
         &stack_page_flags,
         physical_memory_allocator,
     );
+
+    // Map the first 128GiB of physical memory to the top 128GiB of virtual
+    // memory. This will give the kernel the ability to access any physical
+    // memory address. Importantly, this will allow the kernel to access every
+    // page table we have created and will create.
 
     debug_println!();
     print_page_table_entries(root_page_table, 0, 2, 0);
