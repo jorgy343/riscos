@@ -2,7 +2,7 @@
 
 use super::MemoryRegion;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct MemoryMap {
     regions: [MemoryRegion; 128],
     current_size: usize,

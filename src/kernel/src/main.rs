@@ -17,10 +17,6 @@ use kernel_library::memory::{
     physical_memory_allocator::{PhysicalBumpAllocator, PhysicalMemoryAllocator},
 };
 
-static mut MEMORY_MAP: MemoryMap = MemoryMap::new();
-static mut PHYSICAL_MEMORY_ALLOCATOR: PhysicalBumpAllocator = PhysicalBumpAllocator::new();
-static mut ROOT_PAGE_TABLE: PageTable = PageTable::new();
-
 /// Main kernel entry point. This function is called as early as possible in the
 /// boot process.
 ///
@@ -36,12 +32,23 @@ pub extern "C" fn kernel_main(hart_id: usize, dtb_address: usize) -> ! {
     print_reserved_memory_regions(dtb_header);
     print_dtb_structure(dtb_header);
 
-    let memory_map = create_memory_map(dtb_header);
-    print_memory_regions(memory_map);
+    let mut memory_map = create_memory_map(dtb_header);
+    print_memory_regions(&mut memory_map);
 
-    let physical_memory_allocator = create_physical_memory_allocator(memory_map);
+    let mut physical_memory_allocator = create_physical_memory_allocator(&mut memory_map);
 
-    setup_mmu(physical_memory_allocator);
+    let root_page_table_pointer = physical_memory_allocator
+        .allocate_page()
+        .expect("Failed to allocate page for root page table.");
+
+    let mut root_page_table = unsafe { &mut *(root_page_table_pointer as *mut PageTable) };
+    root_page_table.clear();
+
+    setup_mmu(
+        root_page_table_pointer as usize,
+        &mut root_page_table,
+        &mut physical_memory_allocator,
+    );
 
     loop {}
 }
@@ -117,7 +124,7 @@ fn print_dtb_structure(dtb_header: &dtb::DtbHeader) {
     debug_println!();
 }
 
-fn create_memory_map(dtb_header: &dtb::DtbHeader) -> &mut MemoryMap {
+fn create_memory_map(dtb_header: &dtb::DtbHeader) -> MemoryMap {
     unsafe extern "C" {
         static _kernel_begin: usize;
         static _kernel_end_exclusive: usize;
@@ -127,10 +134,10 @@ fn create_memory_map(dtb_header: &dtb::DtbHeader) -> &mut MemoryMap {
     let kernel_end_exclusive = unsafe { &_kernel_end_exclusive as *const _ as usize };
 
     // Populate the memory map using information from the device tree blob.
-    let memory_map = unsafe { &mut *&raw mut MEMORY_MAP };
+    let mut memory_map = MemoryMap::new();
 
-    populate_memory_map_from_dtb(memory_map, dtb_header);
-    adjust_memory_map_from_reserved_regions_in_dtb(memory_map, dtb_header);
+    populate_memory_map_from_dtb(&mut memory_map, dtb_header);
+    adjust_memory_map_from_reserved_regions_in_dtb(&mut memory_map, dtb_header);
 
     let kernel_size = kernel_end_exclusive - kernel_start;
     debug_println!(
@@ -161,35 +168,29 @@ fn print_memory_regions(memory_map: &mut MemoryMap) {
     debug_println!();
 }
 
-fn create_physical_memory_allocator(memory_map: &mut MemoryMap) -> &mut PhysicalBumpAllocator {
-    // Create a physical memory allocator.
-    let physical_memory_allocator = unsafe { &mut *&raw mut PHYSICAL_MEMORY_ALLOCATOR };
+fn create_physical_memory_allocator(memory_map: &mut MemoryMap) -> impl PhysicalMemoryAllocator {
+    let mut physical_memory_allocator = PhysicalBumpAllocator::new();
     physical_memory_allocator.reset(memory_map.get_regions(), memory_map.get_region_count());
 
     debug_println!(
-        "Created a physical memory allocator with {:#x} free memory.",
+        "Created a physical memory allocator with {:#x} free memory.\n",
         physical_memory_allocator.total_memory_size()
     );
-
-    debug_println!();
 
     physical_memory_allocator
 }
 
-fn setup_mmu(physical_memory_allocator: &mut impl PhysicalMemoryAllocator) {
+fn setup_mmu(
+    root_page_table_physical_address: usize,
+    root_page_table: &mut PageTable,
+    physical_memory_allocator: &mut impl PhysicalMemoryAllocator,
+) {
     debug_println!("Setting up MMU with sv39 paging...");
-
-    // Get a mutable reference to the root page table.
-    let root_page_table = unsafe { &mut *&raw mut ROOT_PAGE_TABLE };
-
-    // Clear the root page table to ensure all entries start as invalid.
-    root_page_table.clear();
 
     // Create the recursive mapping for the root page table at index 511. This
     // allows the page tables to be accessed as virtual memory after paging is
     // enabled.
-    let root_page_table_physical_address = &raw const ROOT_PAGE_TABLE as *const _ as usize;
-    let root_physical_page_number =
+    let root_page_table_ppn =
         PhysicalPageNumber::from_physical_address(root_page_table_physical_address);
 
     debug_println!(
@@ -199,12 +200,12 @@ fn setup_mmu(physical_memory_allocator: &mut impl PhysicalMemoryAllocator) {
 
     debug_println!(
         "Root physical page number is {:#x}.",
-        root_physical_page_number.raw_ppn()
+        root_page_table_ppn.raw_ppn()
     );
 
     let mut recursive_entry = PageTableEntry::new();
     recursive_entry.set_valid(true);
-    recursive_entry.set_ppn(root_physical_page_number);
+    recursive_entry.set_ppn(root_page_table_ppn);
 
     // Identity map the .text, .data, .bss, .rodata, and stack sections.
     unsafe extern "C" {
@@ -319,7 +320,7 @@ fn setup_mmu(physical_memory_allocator: &mut impl PhysicalMemoryAllocator) {
     // - MODE (bits 63:60) = 8 for sv39
     // - ASID (bits 59:44) = 0 for now (Address Space ID)
     // - PPN (bits 43:0) = physical page number of the root page table
-    let satp_value = (8usize << 60) | root_physical_page_number.raw_ppn();
+    let satp_value = (8usize << 60) | root_page_table_ppn.raw_ppn();
 
     debug_println!("Setting satp register to {:#x}.", satp_value);
 
@@ -392,8 +393,10 @@ fn map_physical_memory(root_page_table: &mut PageTable) {
     debug_println!();
 }
 
-fn print_page_table_entries(page_table: &PageTable, indent: usize, level: u8, base_vpn: usize) {
+fn print_page_table_entries(page_table: &PageTable, level: u8, base_vpn: usize, initial_level: u8) {
+    let indent = (initial_level - level) as usize * 2;
     let span = 512_usize.pow(level as u32);
+
     for i in 0..512 {
         let entry = page_table.get_entry(i);
         if !entry.is_valid() {
@@ -451,11 +454,12 @@ fn print_page_table_entries(page_table: &PageTable, indent: usize, level: u8, ba
 
         debug_println!("]");
 
-        // If the entry is a pointer to another page table, recursively print
-        // its entries.
+        // If the entry is a pointer to another page table, recursively print its entries.
         if !entry.is_leaf() && level > 0 {
-            let child_pt = unsafe { &*(entry.get_ppn().to_physical_address() as *const PageTable) };
-            print_page_table_entries(child_pt, indent + 2, level - 1, entry_vpn);
+            let child_page_table =
+                unsafe { &*(entry.get_ppn().to_physical_address() as *const PageTable) };
+
+            print_page_table_entries(child_page_table, level - 1, entry_vpn, initial_level);
         }
     }
 }

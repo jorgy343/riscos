@@ -41,7 +41,7 @@ pub trait PhysicalMemoryAllocator {
 /// bump allocation strategy. It maintains a list of memory regions and
 /// allocates pages sequentially from these regions. Deallocation is not
 /// supported.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PhysicalBumpAllocator {
     /// The memory regions available for allocation.
     memory_regions: [MemoryRegion; 128],
