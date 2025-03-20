@@ -2,9 +2,9 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "Build Kernel",
+            "label": "Build Kernel (Debug)",
             "type": "shell",
-            "command": "cargo build --target riscv64gc-unknown-none-elf",
+            "command": "cargo build --target riscv64gc-unknown-none-elf --package kernel && riscv64-unknown-elf-ld --gc-sections --no-print-gc-sections -T linker.ld -o target/riscv64gc-unknown-none-elf/debug/kernel.elf target/riscv64gc-unknown-none-elf/debug/libkernel.a && riscv64-unknown-elf-objcopy -O binary target/riscv64gc-unknown-none-elf/debug/kernel.elf target/riscv64gc-unknown-none-elf/debug/kernel.bin",
             "options": {
                 "cwd": "${workspaceFolder}/src"
             },
@@ -19,7 +19,7 @@
         {
             "label": "Build Kernel (Release)",
             "type": "shell",
-            "command": "cargo build --target riscv64gc-unknown-none-elf --release",
+            "command": "cargo build --target riscv64gc-unknown-none-elf --package kernel --release && riscv64-unknown-elf-ld --gc-sections --no-print-gc-sections -T linker.ld -o target/riscv64gc-unknown-none-elf/release/kernel.elf target/riscv64gc-unknown-none-elf/release/libkernel.a && riscv64-unknown-elf-objcopy -O binary target/riscv64gc-unknown-none-elf/release/kernel.elf target/riscv64gc-unknown-none-elf/release/kernel.bin",
             "options": {
                 "cwd": "${workspaceFolder}/src"
             },
@@ -44,20 +44,20 @@
             ]
         },
         {
-            "label": "Run QEMU",
+            "label": "Run QEMU (Debug)",
             "type": "shell",
-            "command": "qemu-system-riscv64 -nographic -machine virt -cpu rv64 -smp 1 -m 256M -bios /opt/opensbi/share/opensbi/lp64/generic/firmware/fw_jump.bin -kernel target/riscv64gc-unknown-none-elf/debug/kernel",
+            "command": "qemu-system-riscv64 -nographic -machine virt -cpu rv64 -smp 1 -m 256M -bios /opt/opensbi/share/opensbi/lp64/generic/firmware/fw_jump.bin -kernel target/riscv64gc-unknown-none-elf/debug/kernel.bin",
             "options": {
                 "cwd": "${workspaceFolder}/src"
             },
             "dependsOn": [
-                "Build Kernel"
+                "Build Kernel (Debug)"
             ]
         },
         {
             "label": "Run QEMU (Release)",
             "type": "shell",
-            "command": "qemu-system-riscv64 -nographic -machine virt -cpu rv64 -smp 1 -m 256M -bios /opt/opensbi/share/opensbi/lp64/generic/firmware/fw_jump.bin -kernel target/riscv64gc-unknown-none-elf/release/kernel",
+            "command": "qemu-system-riscv64 -nographic -machine virt -cpu rv64 -smp 1 -m 256M -bios /opt/opensbi/share/opensbi/lp64/generic/firmware/fw_jump.bin -kernel target/riscv64gc-unknown-none-elf/release/kernel.bin",
             "options": {
                 "cwd": "${workspaceFolder}/src"
             },
@@ -73,7 +73,7 @@
                 "cwd": "${workspaceFolder}/src"
             },
             "dependsOn": [
-                "Build Kernel"
+                "Build Kernel (Debug)"
             ],
             "isBackground": true,
             "problemMatcher": {

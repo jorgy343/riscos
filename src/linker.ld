@@ -1,3 +1,5 @@
+ENTRY(_start)
+
 SECTIONS
 {
     . = 0x80200000;
@@ -29,10 +31,11 @@ SECTIONS
         _rodata_end = . - 1;
     }
 
-    _stack_begin = .;
-    . = ALIGN(4K);
-    . = . + 16K;
-    _stack_end = . - 1;
+    .stack : ALIGN(4K) {
+        _stack_begin = .;
+        . = . + 16K;
+        _stack_end = . - 1;
+    }
 
     _kernel_end_exclusive = .;
 }

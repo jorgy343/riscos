@@ -313,7 +313,7 @@ fn setup_mmu(
     map_physical_memory(root_page_table);
 
     debug_println!();
-    print_page_table_entries(root_page_table, 0, 2, 0);
+    print_page_table_entries(root_page_table, 2, 0);
     debug_println!();
 
     // Set up the satp register to enable paging. Format for RV64 with sv39:
@@ -393,8 +393,8 @@ fn map_physical_memory(root_page_table: &mut PageTable) {
     debug_println!();
 }
 
-fn print_page_table_entries(page_table: &PageTable, level: u8, base_vpn: usize, initial_level: u8) {
-    let indent = (initial_level - level) as usize * 2;
+fn print_page_table_entries(page_table: &PageTable, level: u8, base_vpn: usize) {
+    let indent = (2 - level) as usize * 2;
     let span = 512_usize.pow(level as u32);
 
     for i in 0..512 {
@@ -459,7 +459,7 @@ fn print_page_table_entries(page_table: &PageTable, level: u8, base_vpn: usize, 
             let child_page_table =
                 unsafe { &*(entry.get_ppn().to_physical_address() as *const PageTable) };
 
-            print_page_table_entries(child_page_table, level - 1, entry_vpn, initial_level);
+            print_page_table_entries(child_page_table, level - 1, entry_vpn);
         }
     }
 }

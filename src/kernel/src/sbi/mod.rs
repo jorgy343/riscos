@@ -6,7 +6,7 @@ pub mod debug_console;
 fn sbi_call_1(extension_id: isize, function_id: isize, arg0: usize) -> (isize, usize) {
     let error: isize;
     let value: usize;
-    
+
     unsafe {
         core::arch::asm!(
             "ecall",
@@ -17,7 +17,7 @@ fn sbi_call_1(extension_id: isize, function_id: isize, arg0: usize) -> (isize, u
             lateout("a1") value,
         );
     }
-    
+
     (error, value)
 }
 
@@ -25,7 +25,7 @@ fn sbi_call_1(extension_id: isize, function_id: isize, arg0: usize) -> (isize, u
 fn sbi_call_2(extension_id: isize, function_id: isize, arg0: usize, arg1: usize) -> (isize, usize) {
     let error: isize;
     let value: usize;
-    
+
     unsafe {
         core::arch::asm!(
             "ecall",
@@ -37,15 +37,21 @@ fn sbi_call_2(extension_id: isize, function_id: isize, arg0: usize, arg1: usize)
             lateout("a1") value,
         );
     }
-    
+
     (error, value)
 }
 
 #[inline(always)]
-fn sbi_call_3(extension_id: isize, function_id: isize, arg0: usize, arg1: usize, arg2: usize) -> (isize, usize) {
+fn sbi_call_3(
+    extension_id: isize,
+    function_id: isize,
+    arg0: usize,
+    arg1: usize,
+    arg2: usize,
+) -> (isize, usize) {
     let error: isize;
     let value: usize;
-    
+
     unsafe {
         core::arch::asm!(
             "ecall",
@@ -58,6 +64,6 @@ fn sbi_call_3(extension_id: isize, function_id: isize, arg0: usize, arg1: usize,
             lateout("a1") value,
         );
     }
-    
+
     (error, value)
 }
