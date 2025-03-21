@@ -5,7 +5,9 @@
         "vscode": {
             "extensions": [
                 "rust-lang.rust-analyzer",
-                "dnut.rewrap-revived"
+                "dnut.rewrap-revived",
+                "ms-azuretools.vscode-docker",
+                "github.vscode-github-actions"
             ]
         }
     }
