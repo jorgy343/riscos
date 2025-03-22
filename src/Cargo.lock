@@ -3,12 +3,12 @@
 version = 4
 
 [[package]]
-name = "kernel"
+name = "boot"
 version = "0.1.0"
 dependencies = [
- "kernel_library",
+ "boot_lib",
 ]
 
 [[package]]
-name = "kernel_library"
+name = "boot_lib"
 version = "0.1.0"

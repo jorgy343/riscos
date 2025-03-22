@@ -12,7 +12,7 @@
 
 use core::cell::RefCell;
 
-use kernel_library::memory::memory_map::MemoryMap;
+use boot_lib::memory::memory_map::MemoryMap;
 
 use crate::debug_println;
 
@@ -96,7 +96,7 @@ impl DtbHeader {
         let base = self as *const _ as usize;
         base + u32::from_be(self.structure_block_offset_be) as usize
     }
-    
+
     // Returns the strings block address relative to the DTB header base.
     pub fn strings_block_address(&self) -> usize {
         let base = self as *const _ as usize;
@@ -135,14 +135,18 @@ pub struct DtbProperty<'a> {
 
 impl<'a> DtbProperty<'a> {
     /// Parses the property data as a u32 value.
-    /// 
+    ///
     /// This function reads the property data as a big-endian u32 value and
     /// returns it as a native-endian u32 value.
     pub fn get_property_data_as_u32(&self) -> u32 {
         u32::from_be(unsafe { *(self.data_address as *const u32) })
     }
 
-    pub fn get_property_data_as_reg(&self, cells_info: &CellInfo, mut address_range_callback: impl FnMut(u64, u64)) {
+    pub fn get_property_data_as_reg(
+        &self,
+        cells_info: &CellInfo,
+        mut address_range_callback: impl FnMut(u64, u64),
+    ) {
         // Parse the property data as a series of address/size pairs according
         // to the DTB spec for "reg" properties.
         //
@@ -161,7 +165,7 @@ impl<'a> DtbProperty<'a> {
         while offset + entry_bytes <= self.data_length {
             let mut address: u64 = 0;
             let mut size: u64 = 0;
-            
+
             // Read the address value (composed of address_cells 32-bit cells).
             for i in 0..cells_info.address_cells as usize {
                 let cell_addr = self.data_address + offset + (i * 4);
@@ -171,7 +175,7 @@ impl<'a> DtbProperty<'a> {
             }
 
             offset += address_bytes;
-            
+
             // Read the size value (composed of size_cells 32-bit cells).
             for i in 0..cells_info.size_cells as usize {
                 let cell_addr = self.data_address + offset + (i * 4);
@@ -181,7 +185,7 @@ impl<'a> DtbProperty<'a> {
             }
 
             offset += size_bytes;
-            
+
             // Invoke the callback with this address/size pair.
             address_range_callback(address, size);
         }
@@ -221,13 +225,18 @@ impl Default for CellInfo {
 ///
 /// * `dtb_header` - Reference to the DTB header.
 /// * `callback` - Function to call for each memory reservation entry.
-pub fn walk_memory_reservation_entries(dtb_header: &DtbHeader, callback: impl Fn(&DtbMemoryReservationEntry)) {
+pub fn walk_memory_reservation_entries(
+    dtb_header: &DtbHeader,
+    callback: impl Fn(&DtbMemoryReservationEntry),
+) {
     let memory_reservation_block_address = dtb_header.memory_reservation_block_address();
 
     let mut index = 0;
     loop {
-        let memory_reservation_entry_address = memory_reservation_block_address + index * core::mem::size_of::<DtbMemoryReservationEntry>();
-        let memory_reservation_entry = unsafe { &*(memory_reservation_entry_address as *const DtbMemoryReservationEntry) };
+        let memory_reservation_entry_address = memory_reservation_block_address
+            + index * core::mem::size_of::<DtbMemoryReservationEntry>();
+        let memory_reservation_entry =
+            unsafe { &*(memory_reservation_entry_address as *const DtbMemoryReservationEntry) };
 
         // The last entry in the list will have an address and size of 0.
         if memory_reservation_entry.address == 0 && memory_reservation_entry.size == 0 {
@@ -241,7 +250,7 @@ pub fn walk_memory_reservation_entries(dtb_header: &DtbHeader, callback: impl Fn
 }
 
 /// Traverses the structure block of a Device Tree Blob (DTB).
-/// 
+///
 /// This function walks through the structure block in a DTB, which contains
 /// nodes and their properties arranged in a hierarchical tree structure. It
 /// processes FDT_BEGIN_NODE tokens to parse nodes and their children
@@ -276,7 +285,7 @@ pub fn walk_memory_reservation_entries(dtb_header: &DtbHeader, callback: impl Fn
 pub fn walk_structure_block(
     dtb_header: &DtbHeader,
     mut node_callback: impl FnMut(&DtbNode, i32),
-    mut property_callback: impl FnMut(&DtbNode, &DtbProperty, &CellInfo, i32)
+    mut property_callback: impl FnMut(&DtbNode, &DtbProperty, &CellInfo, i32),
 ) {
     let structure_block_address = dtb_header.structure_block_address();
 
@@ -294,21 +303,21 @@ pub fn walk_structure_block(
             FDT_BEGIN_NODE => {
                 // Parse this node and all its children.
                 current_address = parse_node(
-                    dtb_header, 
-                    current_address, 
-                    0, 
+                    dtb_header,
+                    current_address,
+                    0,
                     default_cells_info,
-                    &mut node_callback, 
-                    &mut property_callback
+                    &mut node_callback,
+                    &mut property_callback,
                 );
-            },
+            }
             FDT_NOP => {
                 // Nothing to do for NOP tokens.
-            },
+            }
             FDT_END => {
                 // End of the structure block.
                 break;
-            },
+            }
             _ => {
                 debug_println!("Unexpected token at structure block root: {}", token);
                 break;
@@ -322,7 +331,7 @@ pub fn walk_structure_block(
 //=============================================================================
 
 /// Parses a node in the Device Tree Blob (DTB).
-/// 
+///
 /// This function recursively processes a node in the device tree, including its
 /// name, properties, and child nodes. It calls the provided callbacks for each
 /// node and property encountered during traversal.
@@ -353,39 +362,37 @@ fn parse_node(
     node_depth: i32,
     parent_cells_info: CellInfo,
     node_callback: &mut impl FnMut(&DtbNode, i32),
-    property_callback: &mut impl FnMut(&DtbNode, &DtbProperty, &CellInfo, i32)
+    property_callback: &mut impl FnMut(&DtbNode, &DtbProperty, &CellInfo, i32),
 ) -> usize {
     // Read the node name.
     let node_name = read_null_terminated_string(current_address);
-    
+
     // Create a DtbNode instance.
-    let node = DtbNode {
-        name: node_name,
-    };
-    
+    let node = DtbNode { name: node_name };
+
     // Initialize with parent's cell info, will be updated if this node has its
     // own values.
     let mut current_cells_info = parent_cells_info;
-    
+
     // Call the node callback.
     node_callback(&node, node_depth);
-    
+
     // Align to 4-byte boundary after the name.
     current_address = current_address + node_name.len() + 1; // +1 for null terminator.
     current_address = (current_address + 3) & !3;
-    
+
     loop {
         let token_address = unsafe { &*(current_address as *const u32) };
         let token = u32::from_be(*token_address);
 
         current_address += core::mem::size_of::<u32>();
-        
+
         match token {
             FDT_PROP => {
                 // We found a property - back up to the token and process all
                 // properties.
                 current_address -= core::mem::size_of::<u32>();
-                
+
                 // Perform a pre-pass to process special properties that affect
                 // cell info.
                 process_properties(
@@ -400,7 +407,7 @@ fn parse_node(
                         } else if property.name == "#size-cells" {
                             current_cells_info.size_cells = property.get_property_data_as_u32();
                         }
-                    }
+                    },
                 );
 
                 // Process all properties with updated cell info.
@@ -410,12 +417,12 @@ fn parse_node(
                     &node,
                     current_cells_info,
                     node_depth,
-                    |node, prop, cells, depth| property_callback(node, prop, cells, depth)
+                    |node, prop, cells, depth| property_callback(node, prop, cells, depth),
                 );
-                
+
                 // Update address.
                 current_address = next_address;
-            },
+            }
             FDT_BEGIN_NODE => {
                 // Recursively parse a child node with current node's cells
                 // info.
@@ -425,21 +432,21 @@ fn parse_node(
                     node_depth + 1,
                     current_cells_info,
                     node_callback,
-                    property_callback
+                    property_callback,
                 );
-            },
+            }
             FDT_END_NODE => {
                 // End of current node.
                 return current_address;
-            },
+            }
             FDT_NOP => {
                 // Nothing to do for NOP tokens.
-            },
+            }
             FDT_END => {
                 // End of entire tree - should not happen while node parsing.
                 debug_println!("Unexpected FDT_END token within node.");
                 return current_address;
-            },
+            }
             _ => {
                 debug_println!("Unexpected token: {}", token);
 
@@ -451,9 +458,9 @@ fn parse_node(
 }
 
 /// Processes property tokens in a Device Tree Blob node.
-/// 
+///
 /// This function sequentially processes FDT_PROP tokens found in a node,
-/// invoking the property callback for each property. It stops processing when 
+/// invoking the property callback for each property. It stops processing when
 /// it encounters any token that is not an FDT_PROP or FDT_NOP.
 ///
 /// # Parameters
@@ -475,13 +482,13 @@ fn process_properties(
     node: &DtbNode,
     current_cells_info: CellInfo,
     node_depth: i32,
-    mut property_callback: impl FnMut(&DtbNode, &DtbProperty, &CellInfo, i32)
+    mut property_callback: impl FnMut(&DtbNode, &DtbProperty, &CellInfo, i32),
 ) -> usize {
     loop {
         // Read the token at the current address.
         let token_address = unsafe { &*(current_address as *const u32) };
         let token = u32::from_be(*token_address);
-        
+
         // Process only property tokens and exit on any other token.
         if token != FDT_PROP {
             // Return the address of the non-property token we just read We need
@@ -492,26 +499,26 @@ fn process_properties(
 
         // Move past the token.
         current_address += core::mem::size_of::<u32>();
-        
+
         // Parse this property.
         let (property, next_address) = parse_property(dtb_header, current_address);
-        
+
         // Call the property callback.
         property_callback(node, &property, &current_cells_info, node_depth);
-        
+
         // Update the current address.
         current_address = next_address;
     }
 }
 
 /// Parses a property node in the Device Tree Blob (DTB).
-/// 
+///
 /// The FDT_PROP node structure in the DTB contains:
 /// - A 4-byte length value (big-endian) indicating property data size.
 /// - A 4-byte offset (big-endian) into the strings block for the property name.
 /// - The actual property data (of the specified length).
 /// - Padding to align to a 4-byte boundary.
-/// 
+///
 /// This function extracts all information for the property and returns a
 /// DtbProperty structure containing the details.
 ///
@@ -526,59 +533,56 @@ fn process_properties(
 /// - The DtbProperty struct with property information.
 /// - The memory address immediately after this property entry, aligned to a
 ///   4-byte boundary.
-fn parse_property(
-    dtb_header: &DtbHeader,
-    node_address: usize,
-) -> (DtbProperty<'static>, usize) {
+fn parse_property(dtb_header: &DtbHeader, node_address: usize) -> (DtbProperty<'static>, usize) {
     let mut current_address = node_address;
-    
+
     // Read data length and name offset. Note that data length can be zero which
     // indicates a boolean property with implicit value of true.
     let data_length = u32::from_be(unsafe { *(current_address as *const u32) });
     current_address += core::mem::size_of::<u32>();
-    
+
     let nameoff = u32::from_be(unsafe { *(current_address as *const u32) });
     current_address += core::mem::size_of::<u32>();
-    
+
     // Get the strings block address using the helper method
     let strings_block_address = dtb_header.strings_block_address();
-    
+
     // Get the property name.
     let property_name_address = strings_block_address + nameoff as usize;
     let property_name = read_null_terminated_string(property_name_address);
-    
+
     let property = DtbProperty {
         name: property_name,
         data_address: current_address,
         data_length: data_length as usize,
     };
-    
+
     // Skip property data and align to 4-byte boundary.
     current_address += data_length as usize;
     current_address = (current_address + 3) & !3;
-    
+
     (property, current_address)
 }
 
 /// Reads a null-terminated string from the given address.
-/// 
+///
 /// This function reads a null-terminated string from the provided memory
 /// address and returns it as a string slice.
-/// 
+///
 /// # Parameters
-/// 
+///
 /// * `address` - Memory address where the string begins.
-/// 
+///
 /// # Returns
-/// 
+///
 /// A string slice containing the null-terminated string.
-/// 
+///
 /// # Safety
-/// 
+///
 /// This function is unsafe because it dereferences a raw pointer.
-/// 
+///
 /// # Examples
-/// 
+///
 /// ```
 /// let string = read_null_terminated_string(address);
 /// ```
@@ -590,10 +594,8 @@ fn read_null_terminated_string(address: usize) -> &'static str {
     }
 
     // Convert the byte sequence to a string slice.
-    unsafe { 
-        core::str::from_utf8_unchecked(
-            core::slice::from_raw_parts(address as *const u8, length)
-        )
+    unsafe {
+        core::str::from_utf8_unchecked(core::slice::from_raw_parts(address as *const u8, length))
     }
 }
 

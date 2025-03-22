@@ -4,17 +4,17 @@
 mod dtb;
 mod sbi;
 
+use boot_lib::memory::{
+    PhysicalPageNumber, VirtualPageNumber,
+    memory_map::MemoryMap,
+    mmu::{self, PageTable, PageTableEntry, PageTableEntryFlags},
+    physical_memory_allocator::{PhysicalBumpAllocator, PhysicalMemoryAllocator},
+};
 use core::arch::global_asm;
 use core::panic::PanicInfo;
 use dtb::{
     adjust_memory_map_from_reserved_regions_in_dtb, populate_memory_map_from_dtb,
     walk_memory_reservation_entries, walk_structure_block,
-};
-use kernel_library::memory::{
-    PhysicalPageNumber, VirtualPageNumber,
-    memory_map::MemoryMap,
-    mmu::{self, PageTable, PageTableEntry, PageTableEntryFlags},
-    physical_memory_allocator::{PhysicalBumpAllocator, PhysicalMemoryAllocator},
 };
 
 /// Main kernel entry point. This function is called as early as possible in the

@@ -4,7 +4,7 @@
         {
             "label": "Build Kernel (Debug)",
             "type": "shell",
-            "command": "cargo build --target riscv64gc-unknown-none-elf --package kernel && riscv64-unknown-elf-ld --gc-sections --no-print-gc-sections -T linker.ld -o target/riscv64gc-unknown-none-elf/debug/kernel.elf target/riscv64gc-unknown-none-elf/debug/libkernel.a && riscv64-unknown-elf-objcopy -O binary target/riscv64gc-unknown-none-elf/debug/kernel.elf target/riscv64gc-unknown-none-elf/debug/kernel.bin",
+            "command": "cargo build --target riscv64gc-unknown-none-elf --package boot && riscv64-unknown-elf-ld --gc-sections --no-print-gc-sections -T linker.ld -o target/riscv64gc-unknown-none-elf/debug/boot.elf target/riscv64gc-unknown-none-elf/debug/libboot.a && riscv64-unknown-elf-objcopy -O binary target/riscv64gc-unknown-none-elf/debug/boot.elf target/riscv64gc-unknown-none-elf/debug/kernel.bin",
             "options": {
                 "cwd": "${workspaceFolder}/src"
             },
@@ -19,7 +19,7 @@
         {
             "label": "Build Kernel (Release)",
             "type": "shell",
-            "command": "cargo build --target riscv64gc-unknown-none-elf --package kernel --release && riscv64-unknown-elf-ld --gc-sections --no-print-gc-sections -T linker.ld -o target/riscv64gc-unknown-none-elf/release/kernel.elf target/riscv64gc-unknown-none-elf/release/libkernel.a && riscv64-unknown-elf-objcopy -O binary target/riscv64gc-unknown-none-elf/release/kernel.elf target/riscv64gc-unknown-none-elf/release/kernel.bin",
+            "command": "cargo build --target riscv64gc-unknown-none-elf --package boot --release && riscv64-unknown-elf-ld --gc-sections --no-print-gc-sections -T linker.ld -o target/riscv64gc-unknown-none-elf/release/boot.elf target/riscv64gc-unknown-none-elf/release/libboot.a && riscv64-unknown-elf-objcopy -O binary target/riscv64gc-unknown-none-elf/release/boot.elf target/riscv64gc-unknown-none-elf/release/kernel.bin",
             "options": {
                 "cwd": "${workspaceFolder}/src"
             },

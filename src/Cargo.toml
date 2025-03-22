@@ -2,12 +2,12 @@
 resolver = "3"
 
 members = [
-  "kernel",
-  "kernel_library"
+  "boot",
+  "boot_lib"
 ]
 
-[profile.release]
+[profile.dev]
 panic = "abort"
 
-[profile.dev]
+[profile.release]
 panic = "abort"
