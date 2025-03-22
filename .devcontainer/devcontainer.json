@@ -1,6 +1,7 @@
 {
     "name": "RiscOS",
     "image": "riscos-devcontainer",
+    "postCreateCommand": "bash .devcontainer/post-create.sh",
     "customizations": {
         "vscode": {
             "extensions": [

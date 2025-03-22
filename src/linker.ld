@@ -7,27 +7,27 @@ SECTIONS
 
     .text : ALIGN(4K) {
         _text_begin = .;
-        *(.text.kernel_boot)
-        *(.text*)
+        libboot.a:*(.text.kernel_boot)
+        libboot.a:*(.text*)
         _text_end = . - 1;
     }
 
     .data : ALIGN(4K) {
         _data_begin = .;
-        *(.data*)
+        libboot.a:*(.data*)
         _data_end = . - 1;
     }
 
     .bss : ALIGN(4K) {
         _bss_begin = .;
-        *(.bss*)
-        *(COMMON)
+        libboot.a:*(.bss*)
+        libboot.a:*(COMMON)
         _bss_end = . - 1;
     }
 
     .rodata : ALIGN(4K) {
         _rodata_begin = .;
-        *(.rodata*)
+        libboot.a:*(.rodata*)
         _rodata_end = . - 1;
     }
 

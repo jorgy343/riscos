@@ -3,7 +3,8 @@ resolver = "3"
 
 members = [
   "boot",
-  "boot_lib"
+  "boot_lib",
+  "kernel_lib"
 ]
 
 [profile.dev]
