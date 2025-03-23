@@ -1,4 +1,4 @@
-ENTRY(_start)
+ENTRY(_boot_start)
 
 SECTIONS
 {
@@ -7,7 +7,7 @@ SECTIONS
 
     .text : ALIGN(4K) {
         _text_begin = .;
-        libboot.a:*(.text.kernel_boot)
+        libboot.a:*(.text.boot_start)
         libboot.a:*(.text*)
         _text_end = . - 1;
     }

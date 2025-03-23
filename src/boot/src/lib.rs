@@ -471,16 +471,16 @@ fn panic(_panic: &PanicInfo) -> ! {
 
 global_asm!(
     "
-    .global _start
+    .global _boot_start
 
     .extern _bss_begin
     .extern _bss_end
     .extern _stack_end
     .extern kernel_main
 
-    .section .text.kernel_boot
+    .section .text.boot_start
     
-    _start:
+    _boot_start:
         // For now, all secondary harts (hart ID != 0) will loop forever. The
         // riscv spec, requires that there be at least one hart that has hart ID
         // 0.
