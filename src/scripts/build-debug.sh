@@ -12,12 +12,17 @@ cargo build \
     --target riscv64gc-unknown-none-elf \
     --package boot
 
+cargo build \
+    --target riscv64gc-unknown-none-elf \
+    --package kernel
+
 riscv64-unknown-elf-ld \
     --gc-sections \
     --no-print-gc-sections \
     -T linker.ld \
     -o target/riscv64gc-unknown-none-elf/debug/boot.elf \
-    target/riscv64gc-unknown-none-elf/debug/libboot.a
+    target/riscv64gc-unknown-none-elf/debug/libboot.a \
+    target/riscv64gc-unknown-none-elf/debug/libkernel.a
 
 riscv64-unknown-elf-objcopy \
     -O binary \
