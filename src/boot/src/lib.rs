@@ -13,11 +13,13 @@ use startup::{
     mmu::setup_mmu,
 };
 
-/// Boot entry point. This function is called as early as possible in the boot
+/// Primary entry point for the boot process after any low level assembly is
+/// finished up. This function is called as early as possible in the boot
 /// process.
 ///
 /// # Arguments
-/// * `hart_id` - The hardware thread ID.
+///
+/// * `hart_id` - The hardware thread ID that called this function.
 /// * `dtb_address` - Pointer to the device tree blob.
 #[unsafe(no_mangle)]
 pub extern "C" fn boot_main(hart_id: usize, dtb_address: usize) -> ! {
@@ -67,7 +69,7 @@ global_asm!(
     
     _boot_entrypoint:
         // For now, all secondary harts (hart ID != 0) will loop forever. The
-        // riscv spec, requires that there be at least one hart that has hart ID
+        // riscv spec requires that there be at least one hart that has hart ID
         // 0.
         bnez a0, secondary_hart
 
@@ -89,7 +91,8 @@ global_asm!(
 
         bss_clear_end:
         
-        // a0 = hart_id a1 = Device Tree Blob address
+        // - a0 = hart_id
+        // - a1 = Device Tree Blob address
         jal boot_main
 
     infinite:   // Infinite loop if boot_main returns.

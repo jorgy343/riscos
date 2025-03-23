@@ -1,5 +1,7 @@
 #![no_std]
 
+mod sbi;
+
 use core::panic::PanicInfo;
 
 #[panic_handler]
