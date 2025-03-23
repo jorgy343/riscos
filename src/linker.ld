@@ -39,6 +39,7 @@ SECTIONS
 
     .text : ALIGN(4K) {
         _kernel_text_start = .;
+        *libkernel.a:*(.text.kernel_entrypoint)
         *libkernel.a:*(.text*)
         _kernel_text_end = . - 1;
     }
