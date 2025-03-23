@@ -17,14 +17,14 @@ use dtb::{
     walk_memory_reservation_entries, walk_structure_block,
 };
 
-/// Main kernel entry point. This function is called as early as possible in the
-/// boot process.
+/// Boot entry point. This function is called as early as possible in the boot
+/// process.
 ///
 /// # Arguments
 /// * `hart_id` - The hardware thread ID.
 /// * `dtb_address` - Pointer to the device tree blob.
 #[unsafe(no_mangle)]
-pub extern "C" fn kernel_main(hart_id: usize, dtb_address: usize) -> ! {
+pub extern "C" fn boot_main(hart_id: usize, dtb_address: usize) -> ! {
     debug_println!("\nKernel booting on hart ID: {}\n", hart_id);
 
     let dtb_header = get_dtb_header(dtb_address);
@@ -126,12 +126,12 @@ fn print_dtb_structure(dtb_header: &dtb::DtbHeader) {
 
 fn create_memory_map(dtb_header: &dtb::DtbHeader) -> MemoryMap {
     unsafe extern "C" {
-        static _kernel_begin: usize;
-        static _kernel_end_exclusive: usize;
+        static _boot_start: usize;
+        static _boot_end: usize;
     }
 
-    let kernel_start = unsafe { &_kernel_begin as *const _ as usize };
-    let kernel_end_exclusive = unsafe { &_kernel_end_exclusive as *const _ as usize };
+    let boot_start = unsafe { &_boot_start as *const _ as usize };
+    let kernel_end = unsafe { &_boot_end as *const _ as usize };
 
     // Populate the memory map using information from the device tree blob.
     let mut memory_map = MemoryMap::new();
@@ -139,16 +139,16 @@ fn create_memory_map(dtb_header: &dtb::DtbHeader) -> MemoryMap {
     populate_memory_map_from_dtb(&mut memory_map, dtb_header);
     adjust_memory_map_from_reserved_regions_in_dtb(&mut memory_map, dtb_header);
 
-    let kernel_size = kernel_end_exclusive - kernel_start;
+    let kernel_size = kernel_end - boot_start + 1;
     debug_println!(
         "Kernel memory region: {:#x}-{:#x}, size: {:#x}",
-        kernel_start,
-        kernel_end_exclusive - 1,
+        boot_start,
+        kernel_end,
         kernel_size
     );
 
     // Carve out the kernel memory region from the memory map.
-    memory_map.carve_out_region(kernel_start, kernel_size);
+    memory_map.carve_out_region(boot_start, kernel_size);
 
     memory_map
 }
@@ -209,35 +209,35 @@ fn setup_mmu(
 
     // Identity map the .text, .data, .bss, .rodata, and stack sections.
     unsafe extern "C" {
-        static _text_begin: usize;
-        static _text_end: usize;
-        static _data_begin: usize;
-        static _data_end: usize;
-        static _bss_begin: usize;
-        static _bss_end: usize;
-        static _rodata_begin: usize;
-        static _rodata_end: usize;
-        static _stack_begin: usize;
-        static _stack_end: usize;
+        static _boot_text_start: usize;
+        static _boot_text_end: usize;
+        static _boot_data_start: usize;
+        static _boot_data_end: usize;
+        static _boot_bss_start: usize;
+        static _boot_bss_end: usize;
+        static _boot_rodata_start: usize;
+        static _boot_rodata_end: usize;
+        static _boot_stack_start: usize;
+        static _boot_stack_end: usize;
     }
 
-    let text_begin = unsafe { &_text_begin as *const _ as usize };
-    let text_end = unsafe { &_text_end as *const _ as usize };
-    let data_begin = unsafe { &_data_begin as *const _ as usize };
-    let data_end = unsafe { &_data_end as *const _ as usize };
-    let bss_begin = unsafe { &_bss_begin as *const _ as usize };
-    let bss_end = unsafe { &_bss_end as *const _ as usize };
-    let rodata_begin = unsafe { &_rodata_begin as *const _ as usize };
-    let rodata_end = unsafe { &_rodata_end as *const _ as usize };
-    let stack_begin_address = unsafe { &_stack_begin as *const _ as usize };
-    let stack_end_address = unsafe { &_stack_end as *const _ as usize };
+    let boot_text_start = unsafe { &_boot_text_start as *const _ as usize };
+    let boot_text_end = unsafe { &_boot_text_end as *const _ as usize };
+    let boot_data_start = unsafe { &_boot_data_start as *const _ as usize };
+    let boot_data_end = unsafe { &_boot_data_end as *const _ as usize };
+    let boot_bss_start = unsafe { &_boot_bss_start as *const _ as usize };
+    let boot_bss_end = unsafe { &_boot_bss_end as *const _ as usize };
+    let boot_rodata_start = unsafe { &_boot_rodata_start as *const _ as usize };
+    let boot_rodata_end = unsafe { &_boot_rodata_end as *const _ as usize };
+    let boot_stack_start = unsafe { &_boot_stack_start as *const _ as usize };
+    let boot_stack_end = unsafe { &_boot_stack_end as *const _ as usize };
 
     // Identity map the .text section with the executable flag.
     let mut text_flags = PageTableEntryFlags::default();
     text_flags.set_executable(true);
 
-    let text_start_ppn = PhysicalPageNumber::from_physical_address(text_begin);
-    let text_end_ppn = PhysicalPageNumber::from_physical_address(text_end);
+    let text_start_ppn = PhysicalPageNumber::from_physical_address(boot_text_start);
+    let text_end_ppn = PhysicalPageNumber::from_physical_address(boot_text_end);
 
     mmu::identity_map_range(
         root_page_table,
@@ -252,8 +252,8 @@ fn setup_mmu(
     data_flags.set_readable(true);
     data_flags.set_writable(true);
 
-    let data_start_ppn = PhysicalPageNumber::from_physical_address(data_begin);
-    let data_end_ppn = PhysicalPageNumber::from_physical_address(data_end);
+    let data_start_ppn = PhysicalPageNumber::from_physical_address(boot_data_start);
+    let data_end_ppn = PhysicalPageNumber::from_physical_address(boot_data_end);
 
     mmu::identity_map_range(
         root_page_table,
@@ -267,8 +267,8 @@ fn setup_mmu(
     let mut rodata_flags = PageTableEntryFlags::default();
     rodata_flags.set_readable(true);
 
-    let rodata_start_ppn = PhysicalPageNumber::from_physical_address(rodata_begin);
-    let rodata_end_ppn = PhysicalPageNumber::from_physical_address(rodata_end);
+    let rodata_start_ppn = PhysicalPageNumber::from_physical_address(boot_rodata_start);
+    let rodata_end_ppn = PhysicalPageNumber::from_physical_address(boot_rodata_end);
 
     mmu::identity_map_range(
         root_page_table,
@@ -283,8 +283,8 @@ fn setup_mmu(
     bss_flags.set_readable(true);
     bss_flags.set_writable(true);
 
-    let bss_start_ppn = PhysicalPageNumber::from_physical_address(bss_begin);
-    let bss_end_ppn = PhysicalPageNumber::from_physical_address(bss_end);
+    let bss_start_ppn = PhysicalPageNumber::from_physical_address(boot_bss_start);
+    let bss_end_ppn = PhysicalPageNumber::from_physical_address(boot_bss_end);
 
     mmu::identity_map_range(
         root_page_table,
@@ -299,8 +299,8 @@ fn setup_mmu(
     stack_page_flags.set_readable(true);
     stack_page_flags.set_writable(true);
 
-    let stack_start_ppn = PhysicalPageNumber::from_physical_address(stack_begin_address);
-    let stack_end_ppn = PhysicalPageNumber::from_physical_address(stack_end_address);
+    let stack_start_ppn = PhysicalPageNumber::from_physical_address(boot_stack_start);
+    let stack_end_ppn = PhysicalPageNumber::from_physical_address(boot_stack_end);
 
     mmu::identity_map_range(
         root_page_table,
@@ -471,16 +471,16 @@ fn panic(_panic: &PanicInfo) -> ! {
 
 global_asm!(
     "
-    .global _boot_start
+    .global _boot_entrypoint
 
-    .extern _bss_begin
-    .extern _bss_end
-    .extern _stack_end
-    .extern kernel_main
+    .extern _boot_bss_start
+    .extern _boot_bss_end
+    .extern _boot_stack_end
+    .extern boot_main
 
-    .section .text.boot_start
+    .section .text.boot_entrypoint
     
-    _boot_start:
+    _boot_entrypoint:
         // For now, all secondary harts (hart ID != 0) will loop forever. The
         // riscv spec, requires that there be at least one hart that has hart ID
         // 0.
@@ -490,11 +490,11 @@ global_asm!(
         csrci sstatus, 2
 
         // Load stack pointer from the linker script symbol.
-        la sp, _stack_end
+        la sp, _boot_stack_end
 
         // Zero out the .bss section.
-        la t0, _bss_begin
-        la t1, _bss_end
+        la t0, _boot_bss_start
+        la t1, _boot_bss_end
     
         bss_clear_loop:
             bgeu t0, t1, bss_clear_end  // If t0 >= t1, exit the loop.
@@ -505,9 +505,9 @@ global_asm!(
         bss_clear_end:
         
         // a0 = hart_id a1 = Device Tree Blob address
-        jal kernel_main
+        jal boot_main
 
-    infinite:   // Infinite loop if kernel_main returns.
+    infinite:   // Infinite loop if boot_main returns.
         wfi
         j infinite
 

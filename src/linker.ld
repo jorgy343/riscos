@@ -1,41 +1,41 @@
-ENTRY(_boot_start)
+ENTRY(_boot_entrypoint)
 
 SECTIONS
 {
     . = 0x80200000;
-    _kernel_begin = .;
+    _boot_start = .;
 
     .text : ALIGN(4K) {
-        _text_begin = .;
-        libboot.a:*(.text.boot_start)
+        _boot_text_start = .;
+        libboot.a:*(.text.boot_entrypoint)
         libboot.a:*(.text*)
-        _text_end = . - 1;
+        _boot_text_end = . - 1;
     }
 
     .data : ALIGN(4K) {
-        _data_begin = .;
+        _boot_data_start = .;
         libboot.a:*(.data*)
-        _data_end = . - 1;
+        _boot_data_end = . - 1;
     }
 
     .bss : ALIGN(4K) {
-        _bss_begin = .;
+        _boot_bss_start = .;
         libboot.a:*(.bss*)
         libboot.a:*(COMMON)
-        _bss_end = . - 1;
+        _boot_bss_end = . - 1;
     }
 
     .rodata : ALIGN(4K) {
-        _rodata_begin = .;
+        _boot_rodata_start = .;
         libboot.a:*(.rodata*)
-        _rodata_end = . - 1;
+        _boot_rodata_end = . - 1;
     }
 
     .stack : ALIGN(4K) {
-        _stack_begin = .;
+        _boot_stack_start = .;
         . = . + 16K;
-        _stack_end = . - 1;
+        _boot_stack_end = . - 1;
     }
 
-    _kernel_end_exclusive = .;
+    _boot_end = . - 1;
 }
