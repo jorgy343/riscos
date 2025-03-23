@@ -7,7 +7,7 @@ mod sbi;
 use boot_lib::memory::{
     PhysicalPageNumber, VirtualPageNumber,
     memory_map::MemoryMap,
-    mmu::{self, PageTable, PageTableEntry, PageTableEntryFlags},
+    mmu::{self, PageTable, PageTableEntryFlags},
     physical_memory_allocator::{PhysicalBumpAllocator, PhysicalMemoryAllocator},
 };
 use core::arch::global_asm;
@@ -126,12 +126,12 @@ fn print_dtb_structure(dtb_header: &dtb::DtbHeader) {
 
 fn create_memory_map(dtb_header: &dtb::DtbHeader) -> MemoryMap {
     unsafe extern "C" {
-        static _boot_start: usize;
-        static _boot_end: usize;
+        static _kernel_start: usize;
+        static _kernel_end: usize;
     }
 
-    let boot_start = unsafe { &_boot_start as *const _ as usize };
-    let kernel_end = unsafe { &_boot_end as *const _ as usize };
+    let kernel_start = unsafe { &_kernel_start as *const _ as usize };
+    let kernel_end = unsafe { &_kernel_end as *const _ as usize };
 
     // Populate the memory map using information from the device tree blob.
     let mut memory_map = MemoryMap::new();
@@ -139,16 +139,16 @@ fn create_memory_map(dtb_header: &dtb::DtbHeader) -> MemoryMap {
     populate_memory_map_from_dtb(&mut memory_map, dtb_header);
     adjust_memory_map_from_reserved_regions_in_dtb(&mut memory_map, dtb_header);
 
-    let kernel_size = kernel_end - boot_start + 1;
+    let boot_size = kernel_end - kernel_start + 1;
     debug_println!(
         "Kernel memory region: {:#x}-{:#x}, size: {:#x}",
-        boot_start,
+        kernel_start,
         kernel_end,
-        kernel_size
+        boot_size
     );
 
     // Carve out the kernel memory region from the memory map.
-    memory_map.carve_out_region(boot_start, kernel_size);
+    memory_map.carve_out_region(kernel_start, boot_size);
 
     memory_map
 }
@@ -203,10 +203,6 @@ fn setup_mmu(
         root_page_table_ppn.raw_ppn()
     );
 
-    let mut recursive_entry = PageTableEntry::new();
-    recursive_entry.set_valid(true);
-    recursive_entry.set_ppn(root_page_table_ppn);
-
     // Identity map the .text, .data, .bss, .rodata, and stack sections.
     unsafe extern "C" {
         static _boot_text_start: usize;
@@ -238,6 +234,12 @@ fn setup_mmu(
 
     let text_start_ppn = PhysicalPageNumber::from_physical_address(boot_text_start);
     let text_end_ppn = PhysicalPageNumber::from_physical_address(boot_text_end);
+
+    debug_println!(
+        "Mapping .text section: {:#x}-{:#x}",
+        boot_text_start,
+        boot_text_end
+    );
 
     mmu::identity_map_range(
         root_page_table,
