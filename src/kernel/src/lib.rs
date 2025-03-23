@@ -25,7 +25,7 @@ global_asm!(
     .section .text.kernel_entrypoint
     
     _kernel_entrypoint:        
-        jal boot_main
+        jal kernel_main
 
     infinite:   // Infinite loop if kernel_main returns.
         wfi

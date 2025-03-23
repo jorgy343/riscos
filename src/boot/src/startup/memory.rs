@@ -10,12 +10,16 @@ use boot_lib::memory::{
 
 pub fn create_memory_map(dtb_header: &dtb::DtbHeader) -> MemoryMap {
     unsafe extern "C" {
-        static _kernel_start: usize;
-        static _kernel_end: usize;
+        static _boot_start: usize;
+        static _boot_end: usize;
+        static _kernel_size: usize;
     }
 
-    let kernel_start = unsafe { &_kernel_start as *const _ as usize };
-    let kernel_end = unsafe { &_kernel_end as *const _ as usize };
+    let boot_start = unsafe { &_boot_start as *const _ as usize };
+    let boot_end = unsafe { &_boot_end as *const _ as usize };
+    let kernel_size = unsafe { &_kernel_size as *const _ as usize };
+
+    let boot_size = boot_end - boot_start + 1;
 
     // Populate the memory map using information from the device tree blob.
     let mut memory_map = MemoryMap::new();
@@ -23,16 +27,10 @@ pub fn create_memory_map(dtb_header: &dtb::DtbHeader) -> MemoryMap {
     populate_memory_map_from_dtb(&mut memory_map, dtb_header);
     adjust_memory_map_from_reserved_regions_in_dtb(&mut memory_map, dtb_header);
 
-    let boot_size = kernel_end - kernel_start + 1;
-    debug_println!(
-        "Kernel memory region: {:#x}-{:#x}, size: {:#x}",
-        kernel_start,
-        kernel_end,
-        boot_size
-    );
-
-    // Carve out the kernel memory region from the memory map.
-    memory_map.carve_out_region(kernel_start, boot_size);
+    // Carve out the kernel memory region from the memory map. The boot part of
+    // the kernel and the kernel itself are loaded sequentially in physical
+    // memory.
+    memory_map.carve_out_region(boot_start, boot_size + kernel_size);
 
     memory_map
 }
