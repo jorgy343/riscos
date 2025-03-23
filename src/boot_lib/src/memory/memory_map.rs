@@ -14,10 +14,6 @@ impl MemoryMap {
     /// # Returns
     ///
     /// A new memory map instance.
-    ///
-    /// # Safety
-    ///
-    /// This function is safe to call.
     pub const fn new() -> Self {
         MemoryMap {
             regions: [MemoryRegion::new(0, 0); 128],
@@ -44,6 +40,10 @@ impl MemoryMap {
     ///
     /// This function assumes that there is enough space in the memory map to
     /// add the region.
+    ///
+    /// # Side Effects
+    ///
+    /// This function modifies the memory map by adding a new region to it.
     pub const fn add_region(&mut self, start: usize, size: usize) {
         self.regions[self.current_size] = MemoryRegion::new(start, size);
         self.current_size += 1;
@@ -74,7 +74,8 @@ impl MemoryMap {
     /// # Side Effects
     ///
     /// This function modifies this memory map by potentially removing regions,
-    /// adjusting region boundaries, or adding new regions when splitting is required.
+    /// adjusting region boundaries, or adding new regions when splitting is
+    /// required.
     pub fn carve_out_region(&mut self, reserved_start: usize, reserved_size: usize) {
         // Skip if the reserved region is invalid.
         if reserved_size == 0 {
@@ -86,18 +87,22 @@ impl MemoryMap {
             let region = self.regions[i];
             let region_end = region.end();
 
-            // Check for any kind of intersection between the region and reserved area.
+            // Check for any kind of intersection between the region and
+            // reserved area.
             if region_end >= reserved_start && region.start < reserved_start + reserved_size {
-                // Case 1: The reserved region completely contains the current region.
+                // Case 1: The reserved region completely contains the current
+                // region.
                 if reserved_start <= region.start && reserved_start + reserved_size > region_end {
-                    // Remove the region by shifting all subsequent regions one slot to the left.
+                    // Remove the region by shifting all subsequent regions one
+                    // slot to the left.
                     for j in i..self.current_size - 1 {
                         self.regions[j] = self.regions[j + 1];
                     }
 
                     self.current_size -= 1;
 
-                    // Don't increment i as we need to process the newly shifted element at this position.
+                    // Don't increment i as we need to process the newly shifted
+                    // element at this position.
                     continue;
                 }
                 // Case 2: The reserved region cuts the beginning of the region.
@@ -135,7 +140,8 @@ impl MemoryMap {
 
                     // Add the new region if there's space.
                     if self.current_size < self.regions.len() {
-                        // Add the new region by inserting it at the end and we'll process it later.
+                        // Add the new region by inserting it at the end and
+                        // we'll process it later.
                         self.regions[self.current_size] = end_region;
                         self.current_size += 1;
                     }
@@ -223,8 +229,8 @@ mod tests {
         // Add a region from 4096 with size 8192.
         memory_map.add_region(4096, 8192);
 
-        // Reserved region overlaps the start.
-        // For a 4KiB page, aligned_reserved_start = 4096 and aligned_reserved_end = 8192.
+        // Reserved region overlaps the start. For a 4KiB page,
+        // aligned_reserved_start = 4096 and aligned_reserved_end = 8192.
         memory_map.carve_out_region(4096, 4096);
 
         // Expect the region now starts at 8192 and the new size is 4096.
@@ -240,8 +246,8 @@ mod tests {
         // Add a region from 4096 with size 8192.
         memory_map.add_region(4096, 8192);
 
-        // Reserved region overlaps the end.
-        // With reserved_start = 8192 and reserved_size = 4096, aligned_reserved_start = 8192.
+        // Reserved region overlaps the end. With reserved_start = 8192 and
+        // reserved_size = 4096, aligned_reserved_start = 8192.
         memory_map.carve_out_region(8192, 4096);
 
         // Expect the region remains from 4096 to 8191 (size of 4096).
@@ -257,13 +263,14 @@ mod tests {
         // Add a region from 4096 with size 12288.
         memory_map.add_region(4096, 12288);
 
-        // Reserved region is in the middle.
-        // With reserved_start = 8192 and reserved_size = 4096, aligned_reserved_start = 8192, aligned_reserved_end = 12288.
+        // Reserved region is in the middle. With reserved_start = 8192 and
+        // reserved_size = 4096, aligned_reserved_start = 8192,
+        // aligned_reserved_end = 12288.
         memory_map.carve_out_region(8192, 4096);
 
-        // Expect the original region is split into two:
-        // First region: from 4096 to 8191 (4096 bytes).
-        // Second region: from 12288 to 16383 (4096 bytes).
+        // Expect the original region is split into two: First region: from 4096
+        // to 8191 (4096 bytes). Second region: from 12288 to 16383 (4096
+        // bytes).
         assert_eq!(memory_map.current_size, 2);
 
         // Verify the first region.

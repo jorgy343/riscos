@@ -31,7 +31,7 @@
         {
             "label": "Run Tests",
             "type": "shell",
-            "command": "cargo test --target x86_64-unknown-linux-gnu --lib",
+            "command": "cargo test --target x86_64-unknown-linux-gnu --package boot_lib --package kernel_lib",
             "options": {
                 "cwd": "${workspaceFolder}/src"
             },

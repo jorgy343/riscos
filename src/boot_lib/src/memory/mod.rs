@@ -39,8 +39,10 @@ impl PhysicalPageNumber {
     /// # Example
     ///
     /// ```
+    /// use boot_lib::memory::PhysicalPageNumber;
+    ///
     /// let physical_address = 0x8020_0123;
-    /// let ppn = PhysicalPageNumber::from(physical_address);
+    /// let ppn = PhysicalPageNumber::from_physical_address(physical_address);
     ///
     /// assert_eq!(ppn.0, 0x0008_0200);
     /// ```
@@ -121,11 +123,6 @@ impl VirtualPageNumber {
     /// # Arguments
     ///
     /// * `vpn` - The 27-bit virtual page number.
-    ///
-    /// # Returns
-    ///
-    /// The `VirtualPageNumber` representing the top 27 bits of the virtual
-    /// address.
     pub const fn from_raw_virtual_page_number(vpn: usize) -> Self {
         Self(vpn)
     }
@@ -183,9 +180,31 @@ impl VirtualPageNumber {
     }
 }
 
+/// Represents a contiguous region of memory with a starting address and size.
+///
+/// This structure is used to define memory regions in the system, such as
+/// kernel space, device memory, or user space regions. Each region is defined
+/// by its inclusive starting address and its inclusive size in bytes.
+///
+/// # Fields
+///
+/// * `start` - The inclusive starting address of the memory region.
+/// * `size` - The inclusive size of the memory region in bytes.
+///
+/// # Examples
+///
+/// ```
+/// use boot_lib::memory::MemoryRegion;
+///
+/// let kernel_region = MemoryRegion::new(0x8000_0000, 0x0200_0000); // 32MB kernel region.
+/// assert_eq!(kernel_region.end(), 0x81FF_FFFF);
+/// ```
 #[derive(Debug, Clone, Copy)]
 pub struct MemoryRegion {
+    /// The inclusive starting address of the memory region.
     pub start: usize,
+
+    /// The inclusive size of the memory region in bytes.
     pub size: usize,
 }
 
@@ -200,8 +219,52 @@ impl MemoryRegion {
     /// # Returns
     ///
     /// A new memory region instance.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use boot_lib::memory::MemoryRegion;
+    ///
+    /// let region = MemoryRegion::new(0x8000_0000, 0x0200_0000); // 32MiB region.
+    ///
+    /// assert_eq!(region.start, 0x8000_0000);
+    /// assert_eq!(region.size, 0x0200_0000); // 32MiB size.
+    /// ```
     pub const fn new(start: usize, size: usize) -> Self {
         MemoryRegion { start, size }
+    }
+
+    /// Creates a new memory region from a start and end address.
+    ///
+    /// This method calculates the size of the memory region based on the start
+    /// and end addresses provided. The size is inclusive of both the start and
+    /// end addresses. If the end address is less than the start address, the
+    /// size will be set to zero.
+    ///
+    /// # Parameters
+    ///
+    /// * `start` - The inclusive start address of the memory region.
+    /// * `end` - The inclusive end address of the memory region.
+    ///
+    /// # Returns
+    ///
+    /// A new memory region instance.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use boot_lib::memory::MemoryRegion;
+    ///
+    /// let region = MemoryRegion::from_start_and_end(0x8000_0000, 0x81FF_FFFF);
+    ///
+    /// assert_eq!(region.start, 0x8000_0000);
+    /// assert_eq!(region.size, 0x0200_0000); // 32MiB size.
+    /// ```
+    pub const fn from_start_and_end(start: usize, end: usize) -> Self {
+        MemoryRegion {
+            start,
+            size: if end >= start { end - start + 1 } else { 0 },
+        }
     }
 
     /// Returns the inclusive end address of the memory region.
@@ -210,6 +273,15 @@ impl MemoryRegion {
     ///
     /// The inclusive end address of the memory region. If the size is zero,
     /// returns zero.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use boot_lib::memory::MemoryRegion;
+    ///
+    /// let region = MemoryRegion::new(0x8000_0000, 0x0200_0000); // 32MiB region.
+    /// assert_eq!(region.end(), 0x81FF_FFFF); // Inclusive end address.
+    /// ```
     pub const fn end(&self) -> usize {
         if self.size == 0 {
             return 0;
@@ -438,6 +510,78 @@ mod tests {
                 // lower 12 bits.
                 assert_eq!(recovered_addr, *addr & !0xFFF);
             }
+        }
+    }
+
+    mod memory_region_tests {
+        use super::*;
+
+        #[test]
+        fn test_new() {
+            // Standard case.
+            let region = MemoryRegion::new(0x8000_0000, 0x0200_0000);
+            assert_eq!(region.start, 0x8000_0000);
+            assert_eq!(region.size, 0x0200_0000);
+
+            // Zero size.
+            let region = MemoryRegion::new(0x8000_0000, 0);
+            assert_eq!(region.start, 0x8000_0000);
+            assert_eq!(region.size, 0);
+
+            // Zero start.
+            let region = MemoryRegion::new(0, 0x1000);
+            assert_eq!(region.start, 0);
+            assert_eq!(region.size, 0x1000);
+        }
+
+        #[test]
+        fn test_from_start_and_end() {
+            // Standard case.
+            let region = MemoryRegion::from_start_and_end(0x8000_0000, 0x81FF_FFFF);
+            assert_eq!(region.start, 0x8000_0000);
+            assert_eq!(region.size, 0x0200_0000);
+
+            // Same start and end (single byte region).
+            let region = MemoryRegion::from_start_and_end(0x8000_0000, 0x8000_0000);
+            assert_eq!(region.start, 0x8000_0000);
+            assert_eq!(region.size, 1);
+
+            // End address less than start address.
+            let region = MemoryRegion::from_start_and_end(0x8000_0000, 0x7FFF_FFFF);
+            assert_eq!(region.start, 0x8000_0000);
+            assert_eq!(region.size, 0);
+        }
+
+        #[test]
+        fn test_end() {
+            // Standard case.
+            let region = MemoryRegion::new(0x8000_0000, 0x0200_0000);
+            assert_eq!(region.end(), 0x81FF_FFFF);
+
+            // Zero size.
+            let region = MemoryRegion::new(0x8000_0000, 0);
+            assert_eq!(region.end(), 0);
+
+            // Single byte region.
+            let region = MemoryRegion::new(0x8000_0000, 1);
+            assert_eq!(region.end(), 0x8000_0000);
+        }
+
+        #[test]
+        fn test_consistency() {
+            // Test that creating a region from start and end and then getting
+            // the end address returns the original end.
+            let start = 0x8000_0000;
+            let end = 0x81FF_FFFF;
+            let region = MemoryRegion::from_start_and_end(start, end);
+            assert_eq!(region.end(), end);
+
+            // Test that creating a region with new and getting the end address
+            // is consistent with size.
+            let start = 0x8000_0000;
+            let size = 0x0200_0000;
+            let region = MemoryRegion::new(start, size);
+            assert_eq!(region.end(), start + size - 1);
         }
     }
 }
