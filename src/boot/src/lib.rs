@@ -5,7 +5,7 @@ mod sbi;
 mod startup;
 
 use boot_lib::memory::{mmu::PageTable, physical_memory_allocator::PhysicalMemoryAllocator};
-use core::arch::global_asm;
+use core::arch::{asm, global_asm};
 use core::panic::PanicInfo;
 use startup::{
     dtb::{get_dtb_header, print_dtb_structure, print_reserved_memory_regions},
@@ -47,6 +47,19 @@ pub extern "C" fn boot_main(hart_id: usize, dtb_address: usize) -> ! {
         &mut root_page_table,
         &mut physical_memory_allocator,
     );
+
+    // Jump to the kernel at virtual address 0x0000_0040_0000_0000.
+    unsafe {
+        asm!(
+            "
+            la t0, 0x0000004000000000
+            1:
+                j 1b
+            jr t0
+            ",
+            options(noreturn)
+        );
+    }
 
     loop {}
 }

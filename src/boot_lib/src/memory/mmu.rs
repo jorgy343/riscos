@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use super::{
     PhysicalPageNumber, VirtualPageNumber, physical_memory_allocator::PhysicalMemoryAllocator,
 };
@@ -495,6 +493,61 @@ pub fn identity_map_range(
         );
 
         current_ppn = PhysicalPageNumber::from_raw_physical_page_number(current_ppn.raw_ppn() + 1);
+    }
+}
+
+/// Maps a range of physical pages to a specified range of virtual pages in the
+/// page table.
+///
+/// This function maps physical pages starting at `start_ppn_inclusive` to
+/// virtual pages starting at `start_vpn_inclusive` for the specified number of
+/// pages. It creates mappings with the specified flags for each page in the
+/// range.
+///
+/// # Arguments
+///
+/// * `page_table_root` - A mutable reference to the root page table where
+///   mappings will be added.
+/// * `start_ppn_inclusive` - The starting physical page number (inclusive) to
+///   map from.
+/// * `start_vpn_inclusive` - The starting virtual page number (inclusive) to
+///   map to.
+/// * `number_of_pages_inclusive` - The number of pages to map (inclusive
+///   count).
+/// * `flags` - Page table entry flags to apply to each mapping (readable,
+///   writable, executable, etc.).
+/// * `physical_memory_allocator` - A mutable reference to a physical memory
+///   allocator used for creating page tables if needed.
+///
+/// # Notes
+///
+/// * This function creates a separate mapping for each page in the range.
+/// * If the number of pages to map is zero, the function returns without doing.
+/// * This function may create intermediate page table entries as necessary.
+/// * Errors in allocation are silently ignored - if a page mapping fails, the
+///   function continues with the next page.
+pub fn map_range(
+    page_table_root: &mut PageTable,
+    start_ppn_inclusive: PhysicalPageNumber,
+    start_vpn_inclusive: VirtualPageNumber,
+    number_of_pages_inclusive: usize,
+    flags: &PageTableEntryFlags,
+    physical_memory_allocator: &mut impl PhysicalMemoryAllocator,
+) {
+    let mut current_ppn = start_ppn_inclusive;
+    let mut current_vpn = start_vpn_inclusive;
+
+    for _ in 0..=number_of_pages_inclusive {
+        allocate_vpn(
+            page_table_root,
+            current_vpn,
+            Some(current_ppn),
+            flags,
+            physical_memory_allocator,
+        );
+
+        current_ppn = PhysicalPageNumber::from_raw_physical_page_number(current_ppn.raw_ppn() + 1);
+        current_vpn = VirtualPageNumber::from_raw_virtual_page_number(current_vpn.raw_vpn() + 1);
     }
 }
 

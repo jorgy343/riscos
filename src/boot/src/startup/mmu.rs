@@ -1,7 +1,7 @@
 use crate::{debug_print, debug_println};
 use boot_lib::memory::{
     PhysicalPageNumber, VirtualPageNumber,
-    mmu::{PageTable, PageTableEntryFlags, allocate_level_2_vpn, identity_map_range},
+    mmu::{PageTable, PageTableEntryFlags, allocate_level_2_vpn, identity_map_range, map_range},
     physical_memory_allocator::PhysicalMemoryAllocator,
 };
 
@@ -28,6 +28,41 @@ pub fn setup_mmu(
         root_page_table_ppn.raw_ppn()
     );
 
+    identity_map_boot(root_page_table, physical_memory_allocator);
+    map_kernel_into_high_virtual_memory(root_page_table, physical_memory_allocator);
+    map_physical_memory(root_page_table);
+
+    debug_println!();
+    print_page_table_entries(root_page_table, 2, 0);
+    debug_println!();
+
+    // Set up the satp register to enable paging. Format for RV64 with sv39:
+    // - MODE (bits 63:60) = 8 for sv39
+    // - ASID (bits 59:44) = 0 for now (Address Space ID)
+    // - PPN (bits 43:0) = physical page number of the root page table
+    let satp_value = (8usize << 60) | root_page_table_ppn.raw_ppn();
+
+    debug_println!("Setting satp register to {:#x}.", satp_value);
+
+    // Activate the MMU by writing to the satp register.
+    unsafe {
+        // Flush the TLB before activating the MMU, write to satp to enable
+        // paging, and flush the TLB again after enabling paging.
+        core::arch::asm!(
+            "csrw satp, {}",
+            "sfence.vma",
+            in(reg) satp_value,
+            options(nomem, nostack)
+        );
+    }
+
+    debug_println!("MMU activated with sv39 paging.");
+}
+
+fn identity_map_boot(
+    root_page_table: &mut PageTable,
+    physical_memory_allocator: &mut impl PhysicalMemoryAllocator,
+) {
     // Identity map the .text, .data, .bss, .rodata, and stack sections.
     unsafe extern "C" {
         static _boot_text_start: usize;
@@ -59,12 +94,6 @@ pub fn setup_mmu(
 
     let text_start_ppn = PhysicalPageNumber::from_physical_address(boot_text_start);
     let text_end_ppn = PhysicalPageNumber::from_physical_address(boot_text_end);
-
-    debug_println!(
-        "Mapping .text section: {:#x}-{:#x}",
-        boot_text_start,
-        boot_text_end
-    );
 
     identity_map_range(
         root_page_table,
@@ -136,34 +165,81 @@ pub fn setup_mmu(
         &stack_page_flags,
         physical_memory_allocator,
     );
+}
 
-    map_physical_memory(root_page_table);
-
-    debug_println!();
-    print_page_table_entries(root_page_table, 2, 0);
-    debug_println!();
-
-    // Set up the satp register to enable paging. Format for RV64 with sv39:
-    // - MODE (bits 63:60) = 8 for sv39
-    // - ASID (bits 59:44) = 0 for now (Address Space ID)
-    // - PPN (bits 43:0) = physical page number of the root page table
-    let satp_value = (8usize << 60) | root_page_table_ppn.raw_ppn();
-
-    debug_println!("Setting satp register to {:#x}.", satp_value);
-
-    // Activate the MMU by writing to the satp register.
-    unsafe {
-        // Flush the TLB before activating the MMU, write to satp to enable
-        // paging, and flush the TLB again after enabling paging.
-        core::arch::asm!(
-            "csrw satp, {}",
-            "sfence.vma",
-            in(reg) satp_value,
-            options(nomem, nostack)
-        );
+/// Maps the kernel's physical memory to high virtual memory addresses.
+///
+/// This function maps the kernel's physical memory (which starts at the
+/// provided physical address) to the high virtual memory address space of
+/// 0xFFFF_FFFF_8000_0000.
+///
+/// # Arguments
+///
+/// * `root_page_table` - A mutable reference to the root page table where
+///   mappings will be added.
+/// * `kernel_start` - The physical start address of the kernel in memory.
+/// * `kernel_size` - The total size of the kernel in bytes.
+/// * `physical_memory_allocator` - A mutable reference to a physical memory
+///   allocator used for creating page tables if needed.
+///
+/// # Notes
+///
+/// * This function creates the necessary page table entries to map the kernel's
+///   physical memory to high virtual addresses.
+/// * The virtual address where the kernel is mapped is determined by the
+///   `KERNEL_BASE_VIRTUAL_ADDRESS`.
+/// * Different memory regions of the kernel may receive different permissions
+///   based on their usage.
+fn map_kernel_into_high_virtual_memory(
+    root_page_table: &mut PageTable,
+    physical_memory_allocator: &mut impl PhysicalMemoryAllocator,
+) {
+    unsafe extern "C" {
+        static _boot_end: usize;
+        static _kernel_size: usize;
     }
 
-    debug_println!("MMU activated with sv39 paging.");
+    let boot_end = unsafe { &_boot_end as *const _ as usize };
+    let kernel_size = unsafe { &_kernel_size as *const _ as usize };
+
+    let kernel_start = boot_end + 1;
+
+    // The base virtual address where we'll map the kernel.
+    const KERNEL_BASE_VIRTUAL_ADDRESS: usize = 0x0000_0040_0000_0000;
+
+    debug_println!(
+        "Mapping kernel from physical {:#x}-{:#x} to virtual {:#x}-{:#x}.",
+        kernel_start,
+        kernel_start + kernel_size,
+        KERNEL_BASE_VIRTUAL_ADDRESS,
+        KERNEL_BASE_VIRTUAL_ADDRESS + kernel_size
+    );
+
+    // Calculate the number of pages needed to map the kernel. Round up to
+    // ensure all memory is covered.
+    const PAGE_SIZE: usize = 4096;
+    let number_of_pages = (kernel_size + PAGE_SIZE - 1) / PAGE_SIZE;
+
+    // Create the start physical and virtual page numbers.
+    let start_ppn = PhysicalPageNumber::from_physical_address(kernel_start);
+    let start_vpn = VirtualPageNumber::from_virtual_address(KERNEL_BASE_VIRTUAL_ADDRESS);
+
+    // Create the page flags for the kernel mapping. The kernel needs to be
+    // readable, writable, and executable.
+    let mut kernel_flags = PageTableEntryFlags::default();
+    kernel_flags.set_readable(true);
+    kernel_flags.set_writable(true);
+    kernel_flags.set_executable(true);
+
+    // Map the kernel's memory range.
+    map_range(
+        root_page_table,
+        start_ppn,
+        start_vpn,
+        number_of_pages,
+        &kernel_flags,
+        physical_memory_allocator,
+    );
 }
 
 /// Map the first 128GiB of physical memory to the top 128GiB of virtual memory.

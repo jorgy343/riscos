@@ -2,7 +2,7 @@ ENTRY(_kernel_entrypoint)
 
 SECTIONS
 {
-    . = 0x0000800000000000;
+    . = 0x0000004000000000;
     _kernel_start = .;
 
     .text : ALIGN(4K) {
