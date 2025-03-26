@@ -205,7 +205,7 @@ fn map_kernel_into_high_virtual_memory(
     let kernel_start = boot_end + 1;
 
     // The base virtual address where we'll map the kernel.
-    const KERNEL_BASE_VIRTUAL_ADDRESS: usize = 0x0000_0040_0000_0000;
+    const KERNEL_BASE_VIRTUAL_ADDRESS: usize = 0xFFFF_FFC0_0000_0000;
 
     debug_println!(
         "Mapping kernel from physical {:#x}-{:#x} to virtual {:#x}-{:#x}.",

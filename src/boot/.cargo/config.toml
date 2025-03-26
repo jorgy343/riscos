@@ -1,5 +1,0 @@
-[target.riscv64gc-unknown-none-elf]
-rustflags = ["-C", "relocation-model=pic", "--emit=asm"]
-
-[check]
-allTargets = false

@@ -8,10 +8,14 @@ set -x
 
 cd "$(dirname "$0")/.."
 
+export RUSTFLAGS="-C relocation-model=pic --emit=asm"
+
 cargo build \
     --target riscv64gc-unknown-none-elf \
     --package kernel \
     --release
+
+export RUSTFLAGS="-C relocation-model=static --emit=asm"
 
 cargo build \
     --target riscv64gc-unknown-none-elf \

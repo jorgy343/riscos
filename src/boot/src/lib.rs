@@ -48,16 +48,13 @@ pub extern "C" fn boot_main(hart_id: usize, dtb_address: usize) -> ! {
         &mut physical_memory_allocator,
     );
 
-    // Jump to the kernel at virtual address 0x0000_0040_0000_0000.
+    // Jump to the kernel at virtual address 0xFFFF_FFC0_0000_0000.
     unsafe {
         asm!(
             "
-            la t0, 0x0000004000000000
-            1:
-                j 1b
+            li t0, 0xFFFFFFC000000000
             jr t0
-            ",
-            options(noreturn)
+            "
         );
     }
 

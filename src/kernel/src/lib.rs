@@ -6,7 +6,7 @@ use core::{arch::global_asm, panic::PanicInfo};
 
 #[unsafe(no_mangle)]
 pub extern "C" fn kernel_main() -> ! {
-    debug_println!("\nWelcome to the kernel!\n");
+    debug_println!("\nWelcome to the kernel! :)\n");
 
     loop {}
 }
