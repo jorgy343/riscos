@@ -1,9 +1,12 @@
-use super::sbi_calls::sbi_call_3;
+#![allow(unused)]
+
+use super::sbi_calls::{sbi_call_1, sbi_call_3};
 use core::fmt::{self, Write};
 
 const DEBUG_CONSOLE_EXTENSION_ID: i32 = 0x4442434E;
 
 const CONSOLE_WRITE_ID: i32 = 0x0;
+const CONSOLE_WRITE_BYTE_ID: i32 = 0x2;
 
 #[inline(always)]
 pub fn sbi_debug_console_write(buffer: &[u8]) -> (isize, usize) {
@@ -19,12 +22,25 @@ pub fn sbi_debug_console_write(buffer: &[u8]) -> (isize, usize) {
     )
 }
 
+#[inline(always)]
+pub fn sbi_debug_console_write_byte(byte: u8) -> (isize, usize) {
+    sbi_call_1(
+        DEBUG_CONSOLE_EXTENSION_ID as isize,
+        CONSOLE_WRITE_BYTE_ID as isize,
+        byte as usize,
+    )
+}
+
 /// A formatter that writes directly to the SBI debug console.
 pub struct DebugConsoleWriter;
 
 impl Write for DebugConsoleWriter {
     fn write_str(&mut self, s: &str) -> fmt::Result {
-        sbi_debug_console_write(s.as_bytes());
+        // Write each byte individually using the byte-by-byte function.
+        for byte in s.bytes() {
+            sbi_debug_console_write_byte(byte);
+        }
+
         Ok(())
     }
 }

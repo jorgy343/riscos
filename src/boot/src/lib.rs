@@ -22,10 +22,10 @@ use startup::{
 /// * `hart_id` - The hardware thread ID that called this function.
 /// * `dtb_address` - Pointer to the device tree blob.
 #[unsafe(no_mangle)]
-pub extern "C" fn boot_main(hart_id: usize, dtb_address: usize) -> ! {
+pub fn boot_main(hart_id: usize, dtb_physical_address: usize) -> ! {
     debug_println!("\nKernel booting on hart ID: {}\n", hart_id);
 
-    let dtb_header = get_dtb_header(dtb_address);
+    let dtb_header = get_dtb_header(dtb_physical_address);
 
     print_reserved_memory_regions(dtb_header);
     print_dtb_structure(dtb_header);
@@ -49,16 +49,22 @@ pub extern "C" fn boot_main(hart_id: usize, dtb_address: usize) -> ! {
     );
 
     // Jump to the kernel at virtual address 0xFFFF_FFC0_0000_0000.
+    // Pass hart_id in a0, dtb_address in a1, and root_page_table_pointer in a2.
     unsafe {
         asm!(
             "
+            mv a0, {0}
+            mv a1, {1}
+            mv a2, {2}
             li t0, 0xFFFFFFC000000000
             jr t0
-            "
+            ",
+            in(reg) hart_id,
+            in(reg) dtb_physical_address,
+            in(reg) root_page_table_pointer as usize,
+            options(noreturn)
         );
     }
-
-    loop {}
 }
 
 #[panic_handler]
