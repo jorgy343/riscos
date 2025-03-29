@@ -68,7 +68,27 @@ pub fn boot_main(hart_id: usize, dtb_physical_address: usize) -> ! {
 }
 
 #[panic_handler]
-fn panic(_panic: &PanicInfo) -> ! {
+fn panic(info: &PanicInfo) -> ! {
+    debug_println!("\n\n===== BOOT PANIC =====");
+
+    // Print location information if available.
+    if let Some(location) = info.location() {
+        debug_println!(
+            "Panic occurred at {}:{}:{}",
+            location.file(),
+            location.line(),
+            location.column()
+        );
+    } else {
+        debug_println!("Panic occurred at unknown location.");
+    }
+
+    // Print the panic message directly.
+    debug_println!("Panic message: {}", info);
+
+    debug_println!("=========================\n");
+
+    // Halt the boot process.
     loop {}
 }
 
