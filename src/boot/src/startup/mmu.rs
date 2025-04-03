@@ -1,9 +1,9 @@
 use crate::{debug_print, debug_println};
 use boot_lib::memory::{
-    PhysicalPageNumber, VirtualPageNumber,
     mmu::{PageTable, PageTableEntryFlags, allocate_level_2_vpn, identity_map_range, map_range},
     physical_memory_allocator::PhysicalMemoryAllocator,
 };
+use common_lib::memory::{PhysicalPageNumber, VirtualPageNumber};
 
 pub fn setup_mmu(
     root_page_table_physical_address: usize,

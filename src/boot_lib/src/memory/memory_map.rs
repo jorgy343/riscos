@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use super::MemoryRegion;
+use common_lib::memory::MemoryRegion;
 
 #[derive(Debug, Clone)]
 pub struct MemoryMap {

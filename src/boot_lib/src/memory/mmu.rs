@@ -1,6 +1,5 @@
-use super::{
-    PhysicalPageNumber, VirtualPageNumber, physical_memory_allocator::PhysicalMemoryAllocator,
-};
+use super::physical_memory_allocator::PhysicalMemoryAllocator;
+use common_lib::memory::{PhysicalPageNumber, VirtualPageNumber};
 
 #[derive(Clone)]
 #[repr(align(4096))]

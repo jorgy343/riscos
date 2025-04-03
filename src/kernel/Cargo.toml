@@ -7,4 +7,5 @@ edition = "2024"
 crate-type = ["staticlib"]
 
 [dependencies]
+common_lib = { path = "../common_lib" }
 kernel_lib = { path = "../kernel_lib" }

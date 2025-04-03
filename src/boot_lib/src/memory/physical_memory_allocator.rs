@@ -3,7 +3,7 @@
 //! This module provides a simple bump allocator for physical memory pages. It
 //! does not support deallocation of memory pages.
 
-use crate::memory::MemoryRegion;
+use common_lib::memory::MemoryRegion;
 
 /// Trait defining the interface for physical memory allocators.
 ///
