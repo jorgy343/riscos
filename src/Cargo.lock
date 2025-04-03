@@ -12,6 +12,13 @@ dependencies = [
 [[package]]
 name = "boot_lib"
 version = "0.1.0"
+dependencies = [
+ "common_lib",
+]
+
+[[package]]
+name = "common_lib"
+version = "0.1.0"
 
 [[package]]
 name = "kernel"
@@ -23,3 +30,6 @@ dependencies = [
 [[package]]
 name = "kernel_lib"
 version = "0.1.0"
+dependencies = [
+ "common_lib",
+]

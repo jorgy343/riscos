@@ -2,6 +2,7 @@
 resolver = "3"
 
 members = [
+  "common_lib",
   "boot",
   "boot_lib",
   "kernel",
