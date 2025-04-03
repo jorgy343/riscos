@@ -66,27 +66,27 @@ fn identity_map_boot(
     // Identity map the .text, .data, .bss, .rodata, and stack sections.
     unsafe extern "C" {
         static _boot_text_start: usize;
-        static _boot_text_end: usize;
+        static _boot_text_length: usize;
         static _boot_data_start: usize;
-        static _boot_data_end: usize;
+        static _boot_data_length: usize;
         static _boot_bss_start: usize;
-        static _boot_bss_end: usize;
+        static _boot_bss_length: usize;
         static _boot_rodata_start: usize;
-        static _boot_rodata_end: usize;
+        static _boot_rodata_length: usize;
         static _boot_stack_start: usize;
-        static _boot_stack_end: usize;
+        static _boot_stack_length: usize;
     }
 
     let boot_text_start = unsafe { &_boot_text_start as *const _ as usize };
-    let boot_text_end = unsafe { &_boot_text_end as *const _ as usize };
+    let boot_text_end = unsafe { boot_text_start + &_boot_text_length as *const _ as usize };
     let boot_data_start = unsafe { &_boot_data_start as *const _ as usize };
-    let boot_data_end = unsafe { &_boot_data_end as *const _ as usize };
+    let boot_data_end = unsafe { boot_data_start + &_boot_data_length as *const _ as usize };
     let boot_bss_start = unsafe { &_boot_bss_start as *const _ as usize };
-    let boot_bss_end = unsafe { &_boot_bss_end as *const _ as usize };
+    let boot_bss_end = unsafe { boot_bss_start + &_boot_bss_length as *const _ as usize };
     let boot_rodata_start = unsafe { &_boot_rodata_start as *const _ as usize };
-    let boot_rodata_end = unsafe { &_boot_rodata_end as *const _ as usize };
+    let boot_rodata_end = unsafe { boot_rodata_start + &_boot_rodata_length as *const _ as usize };
     let boot_stack_start = unsafe { &_boot_stack_start as *const _ as usize };
-    let boot_stack_end = unsafe { &_boot_stack_end as *const _ as usize };
+    let boot_stack_end = unsafe { boot_stack_start + &_boot_stack_length as *const _ as usize };
 
     // Identity map the .text section with the executable flag.
     let mut text_flags = PageTableEntryFlags::default();

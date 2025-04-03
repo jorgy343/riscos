@@ -97,8 +97,9 @@ global_asm!(
     .global _boot_entrypoint
 
     .extern _boot_bss_start
-    .extern _boot_bss_end
-    .extern _boot_stack_end
+    .extern _boot_bss_length
+    .extern _boot_stack_start
+    .extern _boot_stack_length
     .extern boot_main
 
     .section .text.boot_entrypoint
@@ -113,11 +114,15 @@ global_asm!(
         csrci sstatus, 2
 
         // Load stack pointer from the linker script symbol.
-        la sp, _boot_stack_end
+        // Calculate stack end by adding length to start
+        la t0, _boot_stack_start
+        la t1, _boot_stack_length
+        add sp, t0, t1
 
         // Zero out the .bss section.
         la t0, _boot_bss_start
-        la t1, _boot_bss_end
+        la t1, _boot_bss_length
+        add t1, t0, t1    // Calculate end address: start + length
     
         bss_clear_loop:
             bgeu t0, t1, bss_clear_end  // If t0 >= t1, exit the loop.
