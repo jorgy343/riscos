@@ -33,6 +33,17 @@ pub trait PhysicalMemoryAllocator {
     ///
     /// The total amount of memory that has been allocated, in bytes.
     fn allocated_memory_size(&self) -> usize;
+
+    /// Returns the amount of memory that is still available for allocation, in
+    /// bytes.
+    ///
+    /// # Returns
+    ///
+    /// The total amount of memory that is still available for allocation, in
+    /// bytes.
+    fn available_memory_size(&self) -> usize {
+        self.total_memory_size() - self.allocated_memory_size()
+    }
 }
 
 /// A simple bump allocator for physical memory.
@@ -288,6 +299,97 @@ mod tests {
         assert_eq!(ptr as usize, 0x1000);
 
         // Try to allocate again, should be None.
+        assert!(allocator.allocate_page().is_none());
+    }
+
+    #[test]
+    fn test_available_memory_size_new_allocator() {
+        let regions = [
+            MemoryRegion::new(0x1000, 0x4000),
+            MemoryRegion::new(0x10000, 0x8000),
+        ];
+
+        let mut allocator = PhysicalBumpAllocator::new();
+        allocator.reset(&regions, regions.len());
+
+        // Total memory should be 0x4000 + 0x8000 = 0xC000.
+        //
+        // No memory allocated yet, so available should equal total.
+        assert_eq!(allocator.total_memory_size(), 0xC000);
+        assert_eq!(allocator.allocated_memory_size(), 0);
+        assert_eq!(allocator.available_memory_size(), 0xC000);
+    }
+
+    #[test]
+    fn test_available_memory_size_after_allocation() {
+        let regions = [MemoryRegion::new(0x1000, 0x4000)];
+
+        let mut allocator = PhysicalBumpAllocator::new();
+        allocator.reset(&regions, regions.len());
+
+        // Total memory is 0x4000, nothing allocated yet.
+        assert_eq!(allocator.available_memory_size(), 0x4000);
+
+        // Allocate one page (0x1000).
+        let _ptr = allocator.allocate_page().unwrap();
+        assert_eq!(allocator.allocated_memory_size(), 0x1000);
+        assert_eq!(allocator.available_memory_size(), 0x3000);
+
+        // Allocate two more pages (0x2000).
+        let _ptr2 = allocator.allocate_page().unwrap();
+        let _ptr3 = allocator.allocate_page().unwrap();
+        assert_eq!(allocator.allocated_memory_size(), 0x3000);
+        assert_eq!(allocator.available_memory_size(), 0x1000);
+    }
+
+    #[test]
+    fn test_available_memory_size_across_regions() {
+        let regions = [
+            MemoryRegion::new(0x1000, 0x1000),  // Just one page.
+            MemoryRegion::new(0x10000, 0x2000), // Two pages.
+        ];
+
+        let mut allocator = PhysicalBumpAllocator::new();
+        allocator.reset(&regions, regions.len());
+
+        // Total memory is 0x1000 + 0x2000 = 0x3000.
+        assert_eq!(allocator.total_memory_size(), 0x3000);
+        assert_eq!(allocator.available_memory_size(), 0x3000);
+
+        // Allocate from the first region.
+        let _ptr1 = allocator.allocate_page().unwrap();
+        assert_eq!(allocator.allocated_memory_size(), 0x1000);
+        assert_eq!(allocator.available_memory_size(), 0x2000);
+
+        // Allocate from the second region.
+        let _ptr2 = allocator.allocate_page().unwrap();
+        assert_eq!(allocator.allocated_memory_size(), 0x2000);
+        assert_eq!(allocator.available_memory_size(), 0x1000);
+
+        // Allocate the final page.
+        let _ptr3 = allocator.allocate_page().unwrap();
+        assert_eq!(allocator.allocated_memory_size(), 0x3000);
+        assert_eq!(allocator.available_memory_size(), 0);
+    }
+
+    #[test]
+    fn test_available_memory_size_when_exhausted() {
+        let regions = [
+            MemoryRegion::new(0x1000, 0x1000), // One page.
+        ];
+
+        let mut allocator = PhysicalBumpAllocator::new();
+        allocator.reset(&regions, regions.len());
+
+        // Initially 0x1000 bytes available.
+        assert_eq!(allocator.available_memory_size(), 0x1000);
+
+        // Allocate the only page.
+        let _ptr = allocator.allocate_page().unwrap();
+
+        // No more memory available.
+        assert_eq!(allocator.allocated_memory_size(), 0x1000);
+        assert_eq!(allocator.available_memory_size(), 0);
         assert!(allocator.allocate_page().is_none());
     }
 }

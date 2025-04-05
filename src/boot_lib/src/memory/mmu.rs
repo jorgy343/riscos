@@ -605,7 +605,7 @@ pub fn translate_virtual_address(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::memory::PhysicalPageNumber;
+    use common_lib::memory::PhysicalPageNumber;
 
     /// Set up a basic three-level page table structure for testing translation.
     fn setup_page_tables() -> (PageTable, *const PageTable, *const PageTable) {

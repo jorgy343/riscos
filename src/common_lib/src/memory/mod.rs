@@ -35,7 +35,7 @@ impl PhysicalPageNumber {
     /// # Example
     ///
     /// ```
-    /// use boot_lib::memory::PhysicalPageNumber;
+    /// use common_lib::memory::PhysicalPageNumber;
     ///
     /// let physical_address = 0x8020_0123;
     /// let ppn = PhysicalPageNumber::from_physical_address(physical_address);
@@ -190,7 +190,7 @@ impl VirtualPageNumber {
 /// # Examples
 ///
 /// ```
-/// use boot_lib::memory::MemoryRegion;
+/// use common_lib::memory::MemoryRegion;
 ///
 /// let kernel_region = MemoryRegion::new(0x8000_0000, 0x0200_0000); // 32MB kernel region.
 /// assert_eq!(kernel_region.end(), 0x81FF_FFFF);
@@ -219,7 +219,7 @@ impl MemoryRegion {
     /// # Example
     ///
     /// ```
-    /// use boot_lib::memory::MemoryRegion;
+    /// use common_lib::memory::MemoryRegion;
     ///
     /// let region = MemoryRegion::new(0x8000_0000, 0x0200_0000); // 32MiB region.
     ///
@@ -249,7 +249,7 @@ impl MemoryRegion {
     /// # Example
     ///
     /// ```
-    /// use boot_lib::memory::MemoryRegion;
+    /// use common_lib::memory::MemoryRegion;
     ///
     /// let region = MemoryRegion::from_start_and_end(0x8000_0000, 0x81FF_FFFF);
     ///
@@ -273,7 +273,7 @@ impl MemoryRegion {
     /// # Example
     ///
     /// ```
-    /// use boot_lib::memory::MemoryRegion;
+    /// use common_lib::memory::MemoryRegion;
     ///
     /// let region = MemoryRegion::new(0x8000_0000, 0x0200_0000); // 32MiB region.
     /// assert_eq!(region.end(), 0x81FF_FFFF); // Inclusive end address.
