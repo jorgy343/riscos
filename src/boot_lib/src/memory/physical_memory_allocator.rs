@@ -4,6 +4,7 @@
 //! does not support deallocation of memory pages.
 
 use common_lib::memory::MemoryRegion;
+use core::iter::Iterator;
 
 /// Trait defining the interface for physical memory allocators.
 ///
@@ -44,6 +45,23 @@ pub trait PhysicalMemoryAllocator {
     fn available_memory_size(&self) -> usize {
         self.total_memory_size() - self.allocated_memory_size()
     }
+
+    /// Returns an iterator over all memory regions available to the allocator.
+    ///
+    /// # Returns
+    ///
+    /// An iterator yielding all memory regions registered with this allocator.
+    fn memory_regions(&self) -> impl Iterator<Item = MemoryRegion> + '_;
+
+    /// Returns an iterator over the memory regions that have been allocated.
+    ///
+    /// This provides memory regions representing portions that have been
+    /// allocated from the available memory.
+    ///
+    /// # Returns
+    ///
+    /// An iterator yielding memory regions representing allocated memory.
+    fn allocated_regions(&self) -> impl Iterator<Item = MemoryRegion> + '_;
 }
 
 /// A simple bump allocator for physical memory.
@@ -204,6 +222,46 @@ impl PhysicalMemoryAllocator for PhysicalBumpAllocator {
         }
 
         allocated_size
+    }
+
+    /// Returns an iterator over all memory regions available to the allocator.
+    ///
+    /// # Returns
+    ///
+    /// An iterator yielding all memory regions registered with this allocator.
+    fn memory_regions(&self) -> impl Iterator<Item = MemoryRegion> + '_ {
+        self.memory_regions.iter().take(self.region_count).copied()
+    }
+
+    /// Returns an iterator over the memory regions that have been allocated.
+    ///
+    /// This provides memory regions representing portions that have been
+    /// allocated from the available memory.
+    ///
+    /// # Returns
+    ///
+    /// An iterator yielding memory regions representing allocated memory.
+    fn allocated_regions(&self) -> impl Iterator<Item = MemoryRegion> {
+        self.memory_regions
+            .iter()
+            .take(self.current_region_index)
+            .copied()
+            .chain(
+                // Only include the current region if some memory has been
+                // allocated from it.
+                self.memory_regions
+                    .get(self.current_region_index)
+                    .filter(|_| self.current_region_index < self.region_count)
+                    .map(|region| {
+                        let allocated_size = self.next_allocation_address - region.start;
+                        if allocated_size > 0 {
+                            Some(MemoryRegion::new(region.start, allocated_size))
+                        } else {
+                            None
+                        }
+                    })
+                    .flatten(),
+            )
     }
 }
 

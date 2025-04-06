@@ -292,8 +292,7 @@ fn map_physical_memory(root_page_table: &mut PageTable) {
         }
     }
 
-    debug_println!("  Direct mapping of physical memory complete.");
-    debug_println!();
+    debug_println!("Direct mapping of physical memory complete.");
 }
 
 fn print_page_table_entries(page_table: &PageTable, level: u8, base_vpn: usize) {

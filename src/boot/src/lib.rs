@@ -7,6 +7,7 @@ mod startup;
 use boot_lib::memory::{mmu::PageTable, physical_memory_allocator::PhysicalMemoryAllocator};
 use core::arch::{asm, global_asm};
 use core::panic::PanicInfo;
+use startup::memory::print_physical_memory_stats;
 use startup::{
     dtb::{get_dtb_header, print_dtb_structure, print_reserved_memory_regions},
     memory::{create_memory_map, create_physical_memory_allocator, print_memory_regions},
@@ -47,6 +48,8 @@ pub fn boot_main(hart_id: usize, dtb_physical_address: usize) -> ! {
         &mut root_page_table,
         &mut physical_memory_allocator,
     );
+
+    print_physical_memory_stats(physical_memory_allocator);
 
     // Jump to the kernel at virtual address 0xFFFF_FFC0_0000_0000.
     // Pass hart_id in a0, dtb_address in a1, and root_page_table_pointer in a2.

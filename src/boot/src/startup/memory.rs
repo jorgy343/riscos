@@ -40,7 +40,7 @@ pub fn print_memory_regions(memory_map: &mut MemoryMap) {
 
     memory_map.walk_regions(|region| {
         debug_println!(
-            "  Memory region: {:#x}-{:#x}, size: {:#x}",
+            "  {:#x}-{:#x}, size: {:#x}",
             region.start,
             region.end(),
             region.size
@@ -57,9 +57,43 @@ pub fn create_physical_memory_allocator(
     physical_memory_allocator.reset(memory_map.get_regions(), memory_map.get_region_count());
 
     debug_println!(
-        "Created a physical memory allocator with {:#x} free memory.\n",
+        "Created a physical memory allocator with {} bytes of free memory.\n",
         physical_memory_allocator.total_memory_size()
     );
 
     physical_memory_allocator
+}
+
+pub fn print_physical_memory_stats(physical_memory_allocator: impl PhysicalMemoryAllocator) {
+    debug_println!("\nPhysical Memory Regions:");
+    for region in physical_memory_allocator.memory_regions() {
+        debug_println!(
+            "  {:#x}-{:#x}, size: {:#x} ({}KiB)",
+            region.start,
+            region.start + region.size,
+            region.size,
+            region.size / 1024
+        );
+    }
+
+    debug_println!("\nAllocated Memory Regions:");
+    for region in physical_memory_allocator.allocated_regions() {
+        debug_println!(
+            "  {:#x}-{:#x}, size: {:#x} ({}KiB)",
+            region.start,
+            region.start + region.size,
+            region.size,
+            region.size / 1024
+        );
+    }
+
+    debug_println!(
+        "\nMemory Usage: {}/{}KiB ({:.2}%) used, {}KiB free",
+        physical_memory_allocator.allocated_memory_size() / 1024,
+        physical_memory_allocator.total_memory_size() / 1024,
+        (physical_memory_allocator.allocated_memory_size() as f64
+            / physical_memory_allocator.total_memory_size() as f64)
+            * 100.0,
+        physical_memory_allocator.available_memory_size() / 1024
+    );
 }

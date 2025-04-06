@@ -13,9 +13,9 @@ pub fn kernel_main(
     debug_println!("\nWelcome to the kernel! :)\n");
 
     debug_println!("Hart ID: {}", hart_id);
-    debug_println!("Device Tree Blob Address: {:#x}", dtb_physical_address);
+    debug_println!("DTB physical address: {:#x}", dtb_physical_address);
     debug_println!(
-        "Root Page Table Address: {:#x}",
+        "Root page table physical address: {:#x}",
         root_page_table_physical_address
     );
 
